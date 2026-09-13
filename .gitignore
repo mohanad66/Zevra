@@ -1,0 +1,18 @@
+# browser
+node_modules/
+frontend/dist/
+
+# django
+backend/db.sqlite3
+backend/staticfiles/
+backend/media/
+backend/.server.pid
+*.log
+
+# secrets
+.env
+.env.*
+
+# os
+.DS_Store
+Thumbs.db
