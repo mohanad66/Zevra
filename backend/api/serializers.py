@@ -210,6 +210,24 @@ class CoinSerializer(serializers.ModelSerializer):
         return str(snap.change_24h) if snap and snap.change_24h is not None else "0.00"
 
 
+class AdminCoinSerializer(serializers.ModelSerializer):
+    icon_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Coin
+        fields = [
+            "id", "name", "symbol", "chain", "contract_address", "reference_price",
+            "is_stable", "is_active", "min_invest", "icon", "icon_url",
+        ]
+
+    def get_icon_url(self, obj):
+        if obj.icon:
+            request = self.context.get("request")
+            url = obj.icon.url
+            return request.build_absolute_uri(url) if request else url
+        return None
+
+
 class WalletSerializer(serializers.ModelSerializer):
     coin = CoinSerializer()
     total = serializers.SerializerMethodField()

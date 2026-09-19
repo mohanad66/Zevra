@@ -7,6 +7,7 @@ import { fmt, fmtCrypto, StatusBadge } from '../components/Format'
 import {
   Shield, Clock, Users, UserCheck, Search, Coins, Plus, X, Check, Lock, Unlock,
   Ban, Wallet, PlugZap, Trash2, ListOrdered, RefreshCw, Eye, Bell, Settings2,
+  Pencil,
 } from 'lucide-react'
 
 const MODES = ['simulate', 'provider', 'manual']
@@ -60,6 +61,12 @@ export default function AdminPage() {
   const [orders, setOrders] = useState([])
   const [orderStatus, setOrderStatus] = useState('all')
   const [ordersBusy, setOrdersBusy] = useState(false)
+
+  const [allCoins, setAllCoins] = useState([])
+  const [coinShow, setCoinShow] = useState(false)
+  const [coinEditId, setCoinEditId] = useState(null)
+  const [coinForm, setCoinForm] = useState({ name: '', symbol: '', chain: 'TRC20', contract_address: '', reference_price: '', min_invest: '0', is_stable: true, is_active: true, icon: null })
+  const [coinBusy, setCoinBusy] = useState(false)
 
   const [plats, setPlats] = useState({ _meta: [] })
   const [platDraft, setPlatDraft] = useState({})
@@ -130,8 +137,24 @@ export default function AdminPage() {
     finally { setAnnBusy(false) }
   }
 
+  async function loadCoins() {
+    try {
+      const res = await client.get('/coins/')
+      setCoins(res.data)
+    } catch { /* non-critical */ }
+  }
+
+  async function loadAdminCoins() {
+    setCoinBusy(true)
+    try {
+      const res = await client.get('/admin/coins/')
+      setAllCoins(res.data)
+    } catch (err) { toast(apiError(err), 'error') }
+    finally { setCoinBusy(false) }
+  }
+
   useEffect(() => {
-    client.get('/coins/').then((r) => setCoins(r.data)).catch(() => {})
+    loadCoins()
     loadWindows()
     loadUsers()
     loadKyc()
@@ -139,6 +162,7 @@ export default function AdminPage() {
     loadOrders()
     loadSettings()
     loadAnnouncements()
+    loadAdminCoins()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -325,6 +349,66 @@ export default function AdminPage() {
     } catch (err) { toast(apiError(err), 'error') }
   }
 
+  function openAddCoin() {
+    setCoinEditId(null)
+    setCoinForm({ name: '', symbol: '', chain: 'TRC20', contract_address: '', reference_price: '', min_invest: '0', is_stable: true, is_active: true, icon: null })
+    setCoinShow(true)
+  }
+
+  function openEditCoin(c) {
+    setCoinEditId(c.id)
+    setCoinForm({
+      name: c.name, symbol: c.symbol, chain: c.chain, contract_address: c.contract_address || '',
+      reference_price: String(c.reference_price ?? ''), min_invest: String(c.min_invest ?? '0'),
+      is_stable: c.is_stable, is_active: c.is_active, icon: null,
+    })
+    setCoinShow(true)
+  }
+
+  const cf = (e) => setCoinForm((p) => ({
+    ...p, [e.target.name]: e.target.type === 'checkbox' ? e.target.checked : e.target.value,
+  }))
+  const cff = (e) => setCoinForm((p) => ({ ...p, icon: e.target.files[0] || null }))
+
+  async function saveCoin(e) {
+    e.preventDefault()
+    if (!coinForm.name.trim() || !coinForm.symbol.trim()) return
+    setCoinBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('name', coinForm.name.trim())
+      fd.append('symbol', coinForm.symbol.trim().toUpperCase())
+      fd.append('chain', coinForm.chain)
+      fd.append('contract_address', coinForm.contract_address || '')
+      fd.append('reference_price', String(coinForm.reference_price ?? '0'))
+      fd.append('min_invest', String(coinForm.min_invest ?? '0'))
+      fd.append('is_stable', coinForm.is_stable ? 'true' : 'false')
+      fd.append('is_active', coinForm.is_active ? 'true' : 'false')
+      if (coinForm.icon) fd.append('icon', coinForm.icon)
+
+      if (coinEditId) {
+        await client.put(`/admin/coins/${coinEditId}/`, fd)
+      } else {
+        await client.post('/admin/coins/', fd)
+      }
+      toast(t('admin.toast.coinSaved'), 'success')
+      setCoinShow(false)
+      loadAdminCoins()
+      loadCoins()
+    } catch (err) { toast(apiError(err), 'error') }
+    finally { setCoinBusy(false) }
+  }
+
+  async function deleteCoin(id) {
+    if (!window.confirm(t('admin.coins.confirmDelete'))) return
+    try {
+      await client.delete(`/admin/coins/${id}/`)
+      toast(t('admin.toast.coinDeleted'), 'success')
+      loadAdminCoins()
+      loadCoins()
+    } catch (err) { toast(apiError(err), 'error') }
+  }
+
   async function confirmOrder(id) {
     try {
       const res = await client.post(`/admin/orders/${id}/confirm/`, {})
@@ -365,7 +449,6 @@ export default function AdminPage() {
     finally { setAnnSending(false) }
   }
 
-  const pf = (e) => setProviderForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const prf = (e) => setPayramForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const wf = (e) => setWalletForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const mf = (e) => setModal((p) => ({ ...p, [e.target.name]: e.target.value }))
@@ -394,6 +477,9 @@ export default function AdminPage() {
         </button>
         <button className={`btn ${tab === 'payments' ? 'primary' : 'ghost'}`} onClick={() => setTab('payments')}>
           <Wallet size={16} /> {t('admin.tab.payments')}
+        </button>
+        <button className={`btn ${tab === 'coins' ? 'primary' : 'ghost'}`} onClick={() => setTab('coins')}>
+          <Coins size={16} /> {t('admin.tab.coins')}
         </button>
         <button className={`btn ${tab === 'notifications' ? 'primary' : 'ghost'}`} onClick={() => setTab('notifications')}>
           <Bell size={16} /> {t('admin.tab.notifications')}
@@ -711,6 +797,106 @@ export default function AdminPage() {
                       <Check size={13} /> {t('admin.pay.markPaid')}
                     </button>
                   )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'coins' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <h3 style={{ margin: 0 }}>{t('admin.coins.head')}</h3>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn ghost" onClick={loadAdminCoins} disabled={coinBusy}><RefreshCw size={14} /></button>
+              {!coinShow && <button className="btn primary" onClick={openAddCoin}><Plus size={14} /> {t('admin.coins.add')}</button>}
+            </div>
+          </div>
+          <p className="muted small" style={{ margin: 0 }}>{t('admin.coins.headHint')}</p>
+
+          {coinShow && (
+            <form className="card form" style={{ padding: '1rem' }} onSubmit={saveCoin}>
+              <h3 style={{ marginBottom: '0.6rem' }}>{coinEditId ? t('admin.coins.edit') : t('admin.coins.add')}</h3>
+              <div className="row2">
+                <label>
+                  {t('admin.coins.name')} *
+                  <input name="name" value={coinForm.name} onChange={cf} required />
+                </label>
+                <label>
+                  {t('admin.coins.symbol')} *
+                  <input name="symbol" value={coinForm.symbol} onChange={cf} required placeholder="USDT" />
+                </label>
+              </div>
+              <div className="row2">
+                <label>
+                  {t('admin.coins.chain')}
+                  <select name="chain" value={coinForm.chain} onChange={cf}>
+                    {['TRC20', 'ERC20', 'BEP20', 'BEP2', 'SOL', 'TON'].map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </label>
+                <label>
+                  {t('admin.coins.contract')}
+                  <input name="contract_address" value={coinForm.contract_address} onChange={cf} placeholder="T… / 0x…" />
+                </label>
+              </div>
+              <div className="row2">
+                <label>
+                  {t('admin.coins.referencePrice')}
+                  <input name="reference_price" type="number" step="any" value={coinForm.reference_price} onChange={cf} />
+                </label>
+                <label>
+                  {t('admin.coins.minInvest')}
+                  <input name="min_invest" type="number" step="any" value={coinForm.min_invest} onChange={cf} />
+                </label>
+              </div>
+              <div className="row2">
+                <label>
+                  {t('admin.coins.icon')}
+                  <input name="icon" type="file" accept="image/*" onChange={cff} />
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', flexWrap: 'wrap', paddingTop: '1.4rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
+                    <input name="is_stable" type="checkbox" checked={coinForm.is_stable} onChange={cf} />
+                    {t('admin.coins.isStable')}
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
+                    <input name="is_active" type="checkbox" checked={coinForm.is_active} onChange={cf} />
+                    {t('admin.coins.isActive')}
+                  </label>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
+                <button className="btn primary" disabled={coinBusy}>{coinBusy ? t('admin.coins.saving') : t('admin.coins.save')}</button>
+                <button type="button" className="btn ghost" onClick={() => setCoinShow(false)}>{t('admin.coins.cancel')}</button>
+              </div>
+            </form>
+          )}
+
+          <div className="card" style={{ padding: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+              <h3 style={{ margin: 0 }}>{t('admin.coins.list')}</h3>
+              <span className="muted small">{allCoins.length}</span>
+            </div>
+            {allCoins.length === 0 && <p className="muted small">{t('admin.coins.empty')}</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {allCoins.map((c) => (
+                <div key={c.id} className="pill" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', justifyContent: 'space-between', flexWrap: 'wrap', padding: '0.35rem 0.6rem' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {c.icon_url && <img src={c.icon_url} alt={c.symbol} style={{ width: 20, height: 20, borderRadius: '50%' }} />}
+                    <strong>{c.symbol}</strong>
+                    <span className="muted small">{c.name}</span>
+                    <span className="pill" style={{ fontSize: '0.7rem', padding: '0.05rem 0.4rem' }}>{c.chain}</span>
+                    {c.is_active
+                      ? <span className="pill" style={{ fontSize: '0.7rem', background: 'var(--accent)', color: '#fff' }}>{t('admin.coins.active')}</span>
+                      : <span className="pill" style={{ fontSize: '0.7rem' }}>{t('admin.coins.inactive')}</span>}
+                    {c.is_stable && <span className="muted small">{t('admin.coins.stable')}</span>}
+                  </span>
+                  <span className="muted small">{t('admin.coins.refPrice', { p: fmt(c.reference_price) })} · {t('admin.coins.minInv', { m: fmt(c.min_invest) })}</span>
+                  <span style={{ display: 'flex', gap: '0.4rem' }}>
+                    <button className="btn ghost" title={t('admin.coins.edit')} onClick={() => openEditCoin(c)}><Pencil size={14} /></button>
+                    <button className="btn ghost" style={{ color: '#c00' }} title={t('admin.coins.delete')} onClick={() => deleteCoin(c.id)}><Trash2 size={14} /></button>
+                  </span>
                 </div>
               ))}
             </div>

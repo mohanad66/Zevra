@@ -6,6 +6,7 @@ from decimal import Decimal
 import requests
 from django.core.cache import cache
 from django.db import models, transaction
+from django.db.models.deletion import ProtectedError
 from django.http import FileResponse
 from django.utils import timezone
 from rest_framework import generics, permissions, response, serializers, status, views
@@ -44,6 +45,7 @@ from api.serializers import (
     CryptoAccountSerializer,
     ChangePasswordSerializer,
     CoinSerializer,
+    AdminCoinSerializer,
     AdminUserSerializer,
     PayoutWindowSerializer,
     UserPayoutWindowSerializer,
@@ -1019,6 +1021,36 @@ class AdminOrderConfirmView(views.APIView):
         return response.Response(
             {"message": f"Order {order.order_ref} marked paid and investment confirmed."}
         )
+
+
+class AdminCoinListView(generics.ListCreateAPIView):
+    permission_classes = [IsStaffPermission]
+    pagination_class = None
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    serializer_class = AdminCoinSerializer
+    queryset = Coin.objects.all()
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+
+class AdminCoinDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsStaffPermission]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    serializer_class = AdminCoinSerializer
+    queryset = Coin.objects.all()
+
+    def destroy(self, request, *args, **kwargs):
+        coin = self.get_object()
+        try:
+            with transaction.atomic():
+                coin.delete()
+        except ProtectedError:
+            return response.Response(
+                {"detail": tr("Cannot delete this coin because it has investments.", request)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def _windows_config_for(request):

@@ -42,7 +42,8 @@ RUN addgroup --system --gid 10001 app && \
 
 COPY --chown=app:app . .
 
-RUN mkdir -p /app/staticfiles /app/media && chown -R app:app /app/staticfiles /app/media
+RUN chmod +x /app/docker-entrypoint.sh && \
+    mkdir -p /app/staticfiles /app/media && chown -R app:app /app/staticfiles /app/media
 
 USER app
 

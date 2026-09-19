@@ -46,6 +46,8 @@ urlpatterns = [
     path("admin/payments/wallets/<int:pk>/", views.AdminPaymentWalletDeleteView.as_view(), name="admin_payment_wallet_delete"),
     path("admin/orders/", views.AdminOrdersView.as_view(), name="admin_orders"),
     path("admin/orders/<int:pk>/confirm/", views.AdminOrderConfirmView.as_view(), name="admin_order_confirm"),
+    path("admin/coins/", views.AdminCoinListView.as_view(), name="admin_coins"),
+    path("admin/coins/<int:pk>/", views.AdminCoinDetailView.as_view(), name="admin_coin_detail"),
 
     # payout windows (users)
     path("payout-window/", views.PayoutWindowStatusView.as_view(), name="payout_window_status"),
