@@ -12,8 +12,11 @@
 #   cp .env.docker.example .env      # then fill in real values
 #   docker compose -f docker-compose.yml -f docker-compose.payram.yml up -d --build
 #
-# TLS: terminate HTTPS on a reverse proxy (Caddy/Cloudflare/LB) in front of
-# `main`; the app itself is plain HTTP inside the compose network.
+# TLS: the host nginx (with certbot certs) terminates HTTPS and routes:
+#   miyartrading.com / www  -> 127.0.0.1:8080 (main)
+#   api.miyartrading.com    -> 127.0.0.1:8000 (api)
+#   payram.miyartrading.com -> 127.0.0.1:8081 (payram)
+# Drop-in vhost config: deploy/nginx/miyartrading.conf
 # ---------------------------------------------------------------------------
 
 name: miyartrading
@@ -50,6 +53,10 @@ services:
     build: ./backend
     restart: unless-stopped
     env_file: .env
+    # Exposed on the host loopback only, so the host nginx can proxy
+    # api.miyartrading.com -> 127.0.0.1:8000. Never bind this to 0.0.0.0.
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
     environment:
       DJANGO_ENV: production
       DJANGO_DEBUG: "0"
@@ -86,8 +93,11 @@ services:
       args:
         VITE_API_BASE: ${VITE_API_BASE:-/api}
     restart: unless-stopped
+    # Bound to the host loopback only: the host nginx terminates TLS on 80/443
+    # and proxies miyartrading.com -> 127.0.0.1:8080. Do not publish 0.0.0.0:80
+    # here or it will fight the host nginx.
     ports:
-      - "${HTTP_PORT:-80}:80"
+      - "127.0.0.1:${HTTP_PORT:-8080}:80"
     volumes:
       - staticfiles:/usr/share/nginx/html/static
       - mediafiles:/usr/share/nginx/html/media

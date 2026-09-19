@@ -108,12 +108,35 @@ docker compose down
   the admin account. In production never rely on the dev `seed` defaults.
 - Static files & media are written by `api` into shared named volumes and served
   directly by nginx (`/static/`, `/media/`).
-- Terminate TLS on a reverse proxy / Cloudflare in front of `main` and set
-  `DJANGO_ALLOWED_HOSTS` + `CORS_ALLOWED_ORIGINS` accordingly; the app runs on
-  HTTP inside the compose network.
-- After PayRam is up (`http://host:8081` for testnet), register webhook URL
-  `<your-app>/api/gateway/webhook/` and enter the BASE_URL + project API key in
-  **Admin → Payments** (or `PAYRAM_*` env vars), then hit **Test connection**.
+- Containers bind to the **host loopback only** (`main` → `127.0.0.1:8080`,
+  `api` → `127.0.0.1:8000`, `payram` → `127.0.0.1:8081`) so the host nginx owns
+  ports 80/443 and terminates TLS.
+
+### Host nginx + TLS
+
+Drop-in vhosts for three names are in `deploy/nginx/miyartrading.conf`:
+
+| Hostname                    | Proxied to         |
+|-----------------------------|--------------------|
+| `miyartrading.com` / `www`  | `127.0.0.1:8080` (app; `/api` handled internally) |
+| `api.miyartrading.com`      | `127.0.0.1:8000` (Django REST + `/admin/`) |
+| `payram.miyartrading.com`   | `127.0.0.1:8081` (PayRam dashboard) |
+
+```bash
+sudo cp deploy/nginx/miyartrading.conf /etc/nginx/sites-available/miyartrading.conf
+sudo ln -sf /etc/nginx/sites-available/miyartrading.conf /etc/nginx/sites-enabled/miyartrading.conf
+sudo mkdir -p /var/www/certbot
+sudo certbot certonly --nginx -d miyartrading.com -d www.miyartrading.com \
+  -d api.miyartrading.com -d payram.miyartrading.com
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Set `DJANGO_ALLOWED_HOSTS=miyartrading.com,www.miyartrading.com,api.miyartrading.com`
+and keep `CORS_ALLOWED_ORIGINS` empty (the frontend calls `/api` same-origin).
+- After PayRam is up, open **`https://payram.miyartrading.com`**, register the
+  webhook `<your-app>/api/gateway/webhook/`, then enter the PayRam BASE_URL +
+  project API key in **Admin → Payments** (or `PAYRAM_*` env vars) and hit
+  **Test connection**.
 
 ## Features
 

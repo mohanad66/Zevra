@@ -51,8 +51,9 @@ services:
       POSTGRES_SSLMODE: prefer
       PAYMENTS_APP_SERVER_URL: "https://x.payram.com"   # required verbatim by PayRam
     ports:
-      - "${PAYRAM_HTTP_PORT:-8081}:80"
-      - "${PAYRAM_HTTPS_PORT:-8443}:443"
+      # Loopback only — the host nginx proxies payram.miyartrading.com here.
+      - "127.0.0.1:${PAYRAM_HTTP_PORT:-8081}:80"
+      - "127.0.0.1:${PAYRAM_HTTPS_PORT:-8443}:443"
     volumes:
       - payramdata:/root/payram
       - payramlogs:/var/log
