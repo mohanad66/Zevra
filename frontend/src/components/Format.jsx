@@ -19,8 +19,3 @@ export function percentageClass(v) {
   if (Number.isNaN(n)) return 'neg'
   return n >= 0 ? 'pos' : 'neg'
 }
-
-export function sign(v) {
-  if (v === null || v === undefined) return ''
-  return parseFloat(v) >= 0 ? '▲' : '▼'
-}

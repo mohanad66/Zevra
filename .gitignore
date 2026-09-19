@@ -12,6 +12,7 @@ backend/.server.pid
 # secrets
 .env
 .env.*
+!.env.docker.example
 
 # os
 .DS_Store

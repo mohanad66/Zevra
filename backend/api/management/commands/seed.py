@@ -49,7 +49,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f"Coin created: {name} ({symbol})"))
 
         # Admin user
-        email = options["admin_email"] or "admin@zevra.io"
+        email = options["admin_email"] or "admin@miyartrading.com"
         password = options["admin_password"] or "admin123"
         if not User.objects.filter(email=email).exists():
             User.objects.create_superuser(username=email, email=email, password=password)

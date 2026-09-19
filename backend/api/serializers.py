@@ -7,11 +7,14 @@ from django.db import models
 from django.utils import timezone
 from rest_framework import serializers
 
+from api.i18n import tr
+from api.referrals import referral_tree_counts
 from api.models import (
     Coin,
     CryptoAccount,
     Investment,
     KYCSubmission,
+    Notification,
     Payout,
     PayoutWindow,
     PaymentOrder,
@@ -36,19 +39,26 @@ class RegisterSerializer(serializers.ModelSerializer):
     def validate_email(self, value):
         value = (value or "").strip().lower() or None
         if value and User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("An account with this email already exists.")
+            raise serializers.ValidationError(
+                tr("An account with this email already exists.", self.context.get("request"))
+            )
         return value
 
     def validate_phone(self, value):
         value = (value or "").strip() or None
         if value and User.objects.filter(phone__iexact=value).exists():
-            raise serializers.ValidationError("This phone number is already in use.")
+            raise serializers.ValidationError(
+                tr("This phone number is already in use.", self.context.get("request"))
+            )
         return value
 
     def validate(self, attrs):
         if not attrs.get("email") and not attrs.get("phone"):
             raise serializers.ValidationError(
-                "Provide an email address or a phone number to create an account."
+                tr(
+                    "Provide an email address or a phone number to create an account.",
+                    self.context.get("request"),
+                )
             )
         return attrs
 
@@ -66,13 +76,26 @@ class RegisterSerializer(serializers.ModelSerializer):
         if invite_code:
             referred_by = User.objects.filter(invite_code=invite_code).first()
             if not referred_by:
-                raise serializers.ValidationError({"invite_code": "Invite code is not valid."})
+                raise serializers.ValidationError(
+                    {"invite_code": tr("Invite code is not valid.", self.context.get("request"))}
+                )
         password = validated_data.pop("password")
         user = User(**validated_data)
         if referred_by and referred_by != user:
             user.referred_by = referred_by
         user.set_password(password)
         user.save()
+        if referred_by:
+            who = user.full_name or (user.email or user.phone or "").split()[0]
+            Notification.send(
+                referred_by,
+                Notification.TYPE_INVITE,
+                title=f"{who} joined using your invite code",
+                title_ar=f"{who} انضم باستخدام رمز الدعوة الخاص بك",
+                body="You earn a percentage of every investment they make.",
+                body_ar="ستكسب نسبة مئوية من كل استثمار يقوم به.",
+                link="/referrals",
+            )
         return user
 
 
@@ -98,12 +121,16 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_email(self, value):
         value = (value or "").strip().lower()
         if not value:
-            raise serializers.ValidationError("Email address is required.")
+            raise serializers.ValidationError(
+                tr("Email address is required.", self.context.get("request"))
+            )
         qs = User.objects.filter(email__iexact=value)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
-            raise serializers.ValidationError("An account with this email already exists.")
+            raise serializers.ValidationError(
+                tr("An account with this email already exists.", self.context.get("request"))
+            )
         return value
 
     def validate_phone(self, value):
@@ -113,7 +140,9 @@ class UserSerializer(serializers.ModelSerializer):
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
-                raise serializers.ValidationError("This phone number is already in use.")
+                raise serializers.ValidationError(
+                    tr("This phone number is already in use.", self.context.get("request"))
+                )
         return value
 
     def get_avatar_url(self, obj):
@@ -142,7 +171,9 @@ class ChangePasswordSerializer(serializers.Serializer):
     def validate(self, attrs):
         user = self.context["request"].user
         if not user.check_password(attrs["old_password"]):
-            raise serializers.ValidationError({"old_password": "Current password is incorrect."})
+            raise serializers.ValidationError(
+                {"old_password": tr("Current password is incorrect.", self.context.get("request"))}
+            )
         try:
             validate_password(attrs["new_password"], user)
         except ValidationError as exc:
@@ -199,16 +230,33 @@ class InvestmentInputSerializer(serializers.Serializer):
     def validate(self, attrs):
         settings = PlatformSettings.public_map()
         if settings["kyc_required_to_invest"] and not self.context["request"].user.kyc_verified:
-            raise serializers.ValidationError("KYC verification is required to invest.")
+            raise serializers.ValidationError(
+                tr("KYC verification is required to invest.", self.context.get("request"))
+            )
         try:
             coin = Coin.objects.get(pk=attrs["coin_id"], is_active=True)
         except Coin.DoesNotExist:
-            raise serializers.ValidationError({"coin_id": "Invalid or inactive coin."})
-        if attrs["amount"] <= 0:
-            raise serializers.ValidationError({"amount": "Amount must be greater than zero."})
-        if attrs["amount"] < coin.min_invest:
             raise serializers.ValidationError(
-                {"amount": f"Minimum investment for {coin.symbol} is {coin.min_invest}."}
+                {"coin_id": tr("Invalid or inactive coin.", self.context.get("request"))}
+            )
+        if attrs["amount"] <= 0:
+            raise serializers.ValidationError(
+                {"amount": tr("Amount must be greater than zero.", self.context.get("request"))}
+            )
+        min_required = max(
+            coin.min_invest,
+            Decimal(str(PlatformSettings.get_decimal(PlatformSettings.S_MIN_INVESTMENT, 0))),
+        )
+        if attrs["amount"] < min_required:
+            raise serializers.ValidationError(
+                {
+                    "amount": tr(
+                        "Minimum investment for {symbol} is {min}.",
+                        self.context.get("request"),
+                        symbol=coin.symbol,
+                        min=min_required,
+                    )
+                }
             )
         attrs["coin"] = coin
         return attrs
@@ -237,34 +285,52 @@ class WithdrawalInputSerializer(serializers.Serializer):
         user = self.context["request"].user
         settings = PlatformSettings.public_map()
         if settings["kyc_required_to_withdraw"] and not user.kyc_verified:
-            raise serializers.ValidationError("KYC verification is required to withdraw.")
+            raise serializers.ValidationError(
+                tr("KYC verification is required to withdraw.", self.context.get("request"))
+            )
         if user.is_frozen:
-            raise serializers.ValidationError("Your account is frozen. Contact support.")
+            raise serializers.ValidationError(
+                tr("Your account is frozen. Contact support.", self.context.get("request"))
+            )
 
         try:
             coin = Coin.objects.get(pk=attrs["coin_id"], is_active=True)
         except Coin.DoesNotExist:
-            raise serializers.ValidationError({"coin_id": "Invalid or inactive coin."})
+            raise serializers.ValidationError(
+                {"coin_id": tr("Invalid or inactive coin.", self.context.get("request"))}
+            )
 
         amount = attrs["amount"]
         if amount <= 0:
-            raise serializers.ValidationError({"amount": "Amount must be greater than zero."})
+            raise serializers.ValidationError(
+                {"amount": tr("Amount must be greater than zero.", self.context.get("request"))}
+            )
 
         min_with = PlatformSettings.get_decimal(PlatformSettings.S_MIN_WITHDRAWAL, 0)
         if min_with and amount < min_with:
             raise serializers.ValidationError(
-                {"amount": f"Minimum withdrawal is {min_with} {coin.symbol}."}
+                {
+                    "amount": tr(
+                        "Minimum withdrawal is {min} {symbol}.",
+                        self.context.get("request"),
+                        min=min_with,
+                        symbol=coin.symbol,
+                    )
+                }
             )
 
-        cooldown_hours = settings["withdraw_cooldown_hours"]
+        cooldown_hours = PlatformSettings.cooldown_total_hours("withdraw_cooldown", (0, 0, 0, 24))
         if cooldown_hours > 0:
-            cutoff = user.withdrawals.exclude(status=Withdrawal.STATUS_REJECTED).values_list(
-                "created_at", flat=True
-            )
-            cutoff = list(cutoff)
-            if cutoff and max(cutoff) > timezone.now() - timedelta(hours=cooldown_hours):
+            last_withdrawal = user.withdrawals.exclude(
+                status=Withdrawal.STATUS_REJECTED
+            ).aggregate(latest=models.Max("created_at"))["latest"]
+            if last_withdrawal and last_withdrawal > timezone.now() - timedelta(hours=cooldown_hours):
                 raise serializers.ValidationError(
-                    f"You must wait {cooldown_hours}h between withdrawals."
+                    tr(
+                        "You must wait {hours}h between withdrawals.",
+                        self.context.get("request"),
+                        hours=cooldown_hours,
+                    )
                 )
 
         wallet = Wallet.ensure(user, coin)
@@ -272,10 +338,21 @@ class WithdrawalInputSerializer(serializers.Serializer):
         fee = (amount * Decimal(fee_pct)) / Decimal(100)
         net = amount - fee
         if net <= 0:
-            raise serializers.ValidationError({"amount": "Amount is below the network fee threshold."})
+            raise serializers.ValidationError(
+                {
+                    "amount": tr(
+                        "Amount is below the network fee threshold.",
+                        self.context.get("request"),
+                    )
+                }
+            )
         if wallet.withdrawable_balance < amount:
             raise serializers.ValidationError(
-                {"amount": "Insufficient withdrawable balance."}
+                {
+                    "amount": tr(
+                        "Insufficient withdrawable balance.", self.context.get("request")
+                    )
+                }
             )
 
         attrs["coin"] = coin
@@ -411,14 +488,41 @@ class AdminUserSerializer(serializers.ModelSerializer):
     total_withdrawable = serializers.SerializerMethodField()
     wallets = serializers.SerializerMethodField()
     is_banned = serializers.ReadOnlyField()
+    direct_invites = serializers.SerializerMethodField()
+    level1_count = serializers.SerializerMethodField()
+    level2_count = serializers.SerializerMethodField()
+    level3_count = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             "id", "email", "phone", "full_name", "kyc_verified", "kyc_rejected",
             "is_frozen", "is_banned", "banned_until", "is_active", "is_staff",
-            "invite_code", "total_invested", "total_withdrawable", "wallets", "created_at",
+            "invite_code", "referred_by", "direct_invites",
+            "level1_count", "level2_count", "level3_count",
+            "total_invested", "total_withdrawable", "wallets", "created_at",
         ]
+
+    def _tree_counts(self, obj):
+        cache = self.context.setdefault("_referral_counts_cache", {})
+        if obj.id in cache:
+            return cache[obj.id]
+        bulk = self.context.get("referral_counts")
+        counts = bulk[obj.id] if bulk and obj.id in bulk else referral_tree_counts(obj)
+        cache[obj.id] = counts
+        return counts
+
+    def get_direct_invites(self, obj):
+        return self._tree_counts(obj)[1]
+
+    def get_level1_count(self, obj):
+        return self._tree_counts(obj)[1]
+
+    def get_level2_count(self, obj):
+        return self._tree_counts(obj)[2]
+
+    def get_level3_count(self, obj):
+        return self._tree_counts(obj)[3]
 
     def get_total_invested(self, obj):
         return str(obj.wallets.aggregate(total=models.Sum("invested_balance"))["total"] or 0)
@@ -458,19 +562,35 @@ class KYCSubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = KYCSubmission
         fields = [
-            "id", "document_type", "document_front", "document_back", "selfie",
+            "id", "document_type", "first_name", "last_name", "document_front",
+            "document_back", "selfie",
             "status", "status_display", "reason", "submitted_at", "reviewed_at",
         ]
         read_only_fields = ["user", "status", "reason", "submitted_at", "reviewed_at"]
 
     def validate(self, attrs):
         user = self.context["request"].user
+        request = self.context.get("request")
         if user.kyc_verified:
-            raise serializers.ValidationError("Your account is already verified.")
+            raise serializers.ValidationError(
+                tr("Your account is already verified.", request)
+            )
         if user.kyc_submissions.filter(status=KYCSubmission.STATUS_PENDING).exists():
-            raise serializers.ValidationError("You already have a pending KYC review.")
+            raise serializers.ValidationError(
+                tr("You already have a pending KYC review.", request)
+            )
+        if not (attrs.get("first_name") or "").strip():
+            raise serializers.ValidationError(
+                {"first_name": tr("First name is required.", request)}
+            )
+        if not (attrs.get("last_name") or "").strip():
+            raise serializers.ValidationError(
+                {"last_name": tr("Last name is required.", request)}
+            )
         if not attrs.get("document_front"):
-            raise serializers.ValidationError({"document_front": "Document front image is required."})
+            raise serializers.ValidationError(
+                {"document_front": tr("Document front image is required.", request)}
+            )
         return attrs
 
 
@@ -527,6 +647,10 @@ class ReferralTreeSerializer(serializers.Serializer):
     level3_earned = serializers.CharField()
     total_earned = serializers.CharField()
     direct_invites = serializers.IntegerField()
+    level1_count = serializers.IntegerField()
+    level2_count = serializers.IntegerField()
+    level3_count = serializers.IntegerField()
+    total_referrals = serializers.IntegerField()
     awards = ReferralAwardSerializer(many=True)
 
 

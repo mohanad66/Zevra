@@ -1,0 +1,65 @@
+# ---------------------------------------------------------------------------
+# PayRam gateway override — combines with docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.payram.yml up -d --build
+#
+# Uses the official payramapp/payram image. Per PayRam docs:
+#   * Keep the in-container ports 80/443 as they are; only adjust the HOST-side
+#     port via PAYRAM_HTTP_PORT / PAYRAM_HTTPS_PORT.
+#   * PAYMENTS_APP_SERVER_URL must stay exactly "https://x.payram.com".
+#   * AES_KEY encrypts your hot-wallet keys: generate a fresh one with
+#     `openssl rand -hex 32` and keep it for every future update.
+#   * testnet:  BLOCKCHAIN_NETWORK_TYPE=testnet  SERVER=DEVELOPMENT
+#   * mainnet:  BLOCKCHAIN_NETWORK_TYPE=mainnet  SERVER=PRODUCTION (+ external
+#     managed Postgres recommended — replace POSTGRES_* with your provider's).
+#   * For large scale / production, PayRam recommends a MANAGED Postgres
+#     provider instead of the bundled `payram-db` container.
+# ---------------------------------------------------------------------------
+
+services:
+  payram-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PAYRAM_DB_NAME:-payram}
+      POSTGRES_USER: ${PAYRAM_DB_USER:-payram}
+      POSTGRES_PASSWORD: ${PAYRAM_DB_PASSWORD:?PAYRAM_DB_PASSWORD must be set in .env}
+    volumes:
+      - payramdb:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PAYRAM_DB_USER:-payram} -d ${PAYRAM_DB_NAME:-payram}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  payram:
+    image: ${PAYRAM_IMAGE:-payramapp/payram:latest}   # use :latest-arm64 on arm64 hosts
+    restart: unless-stopped
+    depends_on:
+      payram-db:
+        condition: service_healthy
+    environment:
+      AES_KEY: ${PAYRAM_AES_KEY:?PAYRAM_AES_KEY must be set (openssl rand -hex 32)}
+      SSL_CERT_PATH: ""          # empty when a reverse proxy / Cloudflare does TLS
+      BLOCKCHAIN_NETWORK_TYPE: ${PAYRAM_NETWORK:-testnet}
+      SERVER: ${PAYRAM_SERVER:-DEVELOPMENT}
+      POSTGRES_HOST: payram-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DATABASE: ${PAYRAM_DB_NAME:-payram}
+      POSTGRES_USERNAME: ${PAYRAM_DB_USER:-payram}
+      POSTGRES_PASSWORD: ${PAYRAM_DB_PASSWORD:?PAYRAM_DB_PASSWORD must be set in .env}
+      POSTGRES_SSLMODE: prefer
+      PAYMENTS_APP_SERVER_URL: "https://x.payram.com"   # required verbatim by PayRam
+    ports:
+      - "${PAYRAM_HTTP_PORT:-8081}:80"
+      - "${PAYRAM_HTTPS_PORT:-8443}:443"
+    volumes:
+      - payramdata:/root/payram
+      - payramlogs:/var/log
+      - payramdb_internal:/var/lib/payram/db/postgres   # only relevant if payram postgres username=payram
+
+volumes:
+  payramdb:
+  payramdata:
+  payramlogs:
+  payramdb_internal:

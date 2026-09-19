@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
+import { useI18n } from '../i18n'
 import { client } from '../api/client'
 import { Camera, ShieldCheck, KeyRound, LogOut, Trash2, Plus } from 'lucide-react'
-
-const KYC_LABEL = { pending: 'Pending review', approved: 'Verified', rejected: 'Rejected', verified: 'Verified', not_submitted: 'Not submitted' }
 
 export default function Profile() {
   const { user, refreshUser, logout, apiError } = useAuth()
   const { toast } = useToast()
+  const { t } = useI18n()
   const [profile, setProfile] = useState({ email: '', first_name: '', last_name: '', phone: '' })
   const [avatar, setAvatar] = useState(null)
   const [pwd, setPwd] = useState({ old_password: '', new_password: '' })
   const [kyc, setKyc] = useState({ status: 'not_submitted', required_to_invest: false, required_to_withdraw: false })
-  const [kycForm, setKycForm] = useState({ document_type: 'ID', document_front: null, document_back: null, selfie: null })
+  const [kycForm, setKycForm] = useState({ first_name: '', last_name: '', document_type: 'ID card', document_front: null, document_back: null, selfie: null })
   const [accounts, setAccounts] = useState([])
   const [coins, setCoins] = useState([])
   const [accForm, setAccForm] = useState({ coin: null, address: '', label: '' })
@@ -34,7 +34,14 @@ export default function Profile() {
   useEffect(() => { load().catch(() => {}) }, [])
 
   useEffect(() => {
-    if (user) setProfile({ email: user.email, first_name: user.first_name, last_name: user.last_name, phone: user.phone || '' })
+    if (user) {
+      setProfile({ email: user.email, first_name: user.first_name, last_name: user.last_name, phone: user.phone || '' })
+      setKycForm((f) => ({
+        ...f,
+        first_name: f.first_name || user.first_name || '',
+        last_name: f.last_name || user.last_name || '',
+      }))
+    }
   }, [user])
 
   async function saveProfile(e) {
@@ -50,7 +57,7 @@ export default function Profile() {
       await client.patch('/auth/me/', form)
       await refreshUser()
       setAvatar(null)
-      toast('Profile updated', 'success')
+      toast(t('pf.saved'), 'success')
     } catch (err) {
       toast(apiError(err), 'error')
     } finally { setBusy(false) }
@@ -62,7 +69,7 @@ export default function Profile() {
     try {
       await client.post('/auth/change-password/', pwd)
       setPwd({ old_password: '', new_password: '' })
-      toast('Password changed', 'success')
+      toast(t('pf.passwordChanged'), 'success')
     } catch (err) {
       toast(apiError(err), 'error')
     } finally { setBusy(false) }
@@ -70,10 +77,16 @@ export default function Profile() {
 
   async function submitKyc(e) {
     e.preventDefault()
-    if (!kycForm.document_front) { toast('Upload at least your document front image', 'error'); return }
+    if (!kycForm.first_name.trim() || !kycForm.last_name.trim()) {
+      toast(t('pf.kyc.namesNote'), 'error')
+      return
+    }
+    if (!kycForm.document_front) { toast(t('pf.kyc.frontRequired'), 'error'); return }
     setBusy(true)
     try {
       const form = new FormData()
+      form.append('first_name', kycForm.first_name.trim())
+      form.append('last_name', kycForm.last_name.trim())
       form.append('document_type', kycForm.document_type)
       form.append('document_front', kycForm.document_front)
       if (kycForm.document_back) form.append('document_back', kycForm.document_back)
@@ -88,13 +101,13 @@ export default function Profile() {
 
   async function addAccount(e) {
     e.preventDefault()
-    if (!accForm.address.trim()) { toast('Enter an address', 'error'); return }
+    if (!accForm.address.trim()) { toast(t('pf.acc.enterAddress'), 'error'); return }
     setBusy(true)
     try {
       await client.post('/accounts/', { coin: accForm.coin, address: accForm.address, label: accForm.label })
       setAccForm({ coin: accForm.coin, address: '', label: '' })
       await load()
-      toast('Crypto account saved', 'success')
+      toast(t('pf.acc.saved'), 'success')
     } catch (err) {
       toast(apiError(err), 'error')
     } finally { setBusy(false) }
@@ -104,28 +117,44 @@ export default function Profile() {
     try {
       await client.delete(`/accounts/${id}/`)
       await load()
-      toast('Account removed', 'success')
+      toast(t('pf.acc.removed'), 'success')
     } catch (err) { toast(apiError(err), 'error') }
   }
 
   async function delAccountAll() {
-    if (!window.confirm('Delete your account? This cannot be undone.')) return
+    if (!window.confirm(t('pf.deleteConfirm'))) return
     try {
       await client.post('/auth/delete/')
-      toast('Account deleted', 'success')
+      toast(t('pf.deleted'), 'success')
       await logout()
     } catch (err) { toast(apiError(err), 'error') }
   }
 
+  const kycBadge = kyc.kyc_verified
+    ? 'verified'
+    : kyc.kyc_rejected
+      ? 'rejected'
+      : kyc.status === 'pending'
+        ? 'pending'
+        : 'none'
+
+  const kycLabel = kyc.kyc_verified
+    ? t('pf.kyc.verified')
+    : kyc.kyc_rejected
+      ? t('pf.kyc.rejected')
+      : kyc.status === 'pending'
+        ? t('pf.kyc.pending')
+        : t('pf.kyc.notSubmitted')
+
   return (
     <div className="page">
       <div className="page-head">
-        <div><h2>Profile</h2><p>Manage your identity, security and verification.</p></div>
+        <div><h2>{t('pf.title')}</h2><p>{t('pf.subtitle')}</p></div>
       </div>
 
       <div className="profile-grid">
         <form className="card form" onSubmit={saveProfile}>
-          <h3>Personal info</h3>
+          <h3>{t('pf.personal')}</h3>
           <div className="avatar-row">
             {avatar ? (
               <img className="avatar lg" src={URL.createObjectURL(avatar)} alt="" />
@@ -135,20 +164,20 @@ export default function Profile() {
               <span className="avatar-fallback lg">{user?.email?.[0]?.toUpperCase()}</span>
             )}
             <label className="btn ghost file-btn">
-              <Camera size={16} /> Change photo
+              <Camera size={16} /> {t('pf.changePhoto')}
               <input type="file" accept="image/*" onChange={(e) => setAvatar(e.target.files[0])} hidden />
             </label>
           </div>
           <div className="row2">
-            <label>First name
+            <label>{t('auth.register.firstName')}
               <input value={profile.first_name} onChange={(e) => setProfile({ ...profile, first_name: e.target.value })} />
             </label>
-            <label>Last name
+            <label>{t('auth.register.lastName')}
               <input value={profile.last_name} onChange={(e) => setProfile({ ...profile, last_name: e.target.value })} />
             </label>
           </div>
           <div className="row2">
-            <label>Email
+            <label>{t('pf.email')}
               <input
                 type="email"
                 value={profile.email}
@@ -156,68 +185,80 @@ export default function Profile() {
                 required
               />
             </label>
-            <label>Phone
-              <input value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} placeholder="Optional" />
+            <label>{t('pf.phone')}
+              <input value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} placeholder={t('pf.optional')} />
             </label>
           </div>
-          <button className="btn primary block" disabled={busy}>Save profile</button>
+          <button className="btn primary block" disabled={busy}>{t('pf.saveChanges')}</button>
         </form>
 
         <form className="card form" onSubmit={changePassword}>
-          <h3><KeyRound size={18} /> Change password</h3>
-          <label>Current password
+          <h3><KeyRound size={18} /> {t('pf.password')}</h3>
+          <label>{t('pf.currentPassword')}
             <input type="password" value={pwd.old_password} onChange={(e) => setPwd({ ...pwd, old_password: e.target.value })} required />
           </label>
-          <label>New password
+          <label>{t('pf.newPassword')}
             <input type="password" value={pwd.new_password} onChange={(e) => setPwd({ ...pwd, new_password: e.target.value })} required minLength={8} />
           </label>
-          <button className="btn primary block" disabled={busy}>Update password</button>
+          <button className="btn primary block" disabled={busy}>{t('pf.changePassword')}</button>
         </form>
       </div>
 
       <div className="card form">
-        <h3><ShieldCheck size={18} /> KYC verification</h3>
+        <h3><ShieldCheck size={18} /> {t('pf.kyc.title')}</h3>
         <div className="kyc-status">
-          <span className={`pill pill-${kyc.kyc_verified ? 'completed' : kyc.kyc_rejected ? 'rejected' : 'pending'}`}>
-            {kyc.kyc_verified ? 'Verified' : kyc.kyc_rejected ? 'Rejected' : KYC_LABEL[kyc.status] || kyc.status}
+          <span className={`pill pill-${kycBadge}`}>
+            {kycLabel}
           </span>
-          {kyc.required_to_invest && <span className="muted small">Required to invest</span>}
-          {kyc.required_to_withdraw && <span className="muted small">Required to withdraw</span>}
-          {kyc.reason && <p className="small warn-text">Reason: {kyc.reason}</p>}
+          {kyc.required_to_invest && <span className="muted small">{t('pf.kyc.reqInvest')}</span>}
+          {kyc.required_to_withdraw && <span className="muted small">{t('pf.kyc.reqWithdraw')}</span>}
+          {kyc.reason && <p className="small warn-text">{t('pf.kyc.reason')}: {kyc.reason}</p>}
         </div>
 
         {!kyc.kyc_verified && (
           <form onSubmit={submitKyc}>
-            <label>Document type
+            <h3 style={{ marginTop: '.5rem' }}>{t('pf.kyc.formTitle')}</h3>
+            <div className="notice" style={{ backgroundColor: 'rgba(206,167,77,.08)', borderColor: 'rgba(206,167,77,.35)' }}>
+              {t('pf.kyc.namesNote')}
+            </div>
+            <div className="row2">
+              <label>{t('pf.kyc.firstName')}
+                <input value={kycForm.first_name} onChange={(e) => setKycForm({ ...kycForm, first_name: e.target.value })} />
+              </label>
+              <label>{t('pf.kyc.lastName')}
+                <input value={kycForm.last_name} onChange={(e) => setKycForm({ ...kycForm, last_name: e.target.value })} />
+              </label>
+            </div>
+            <label>{t('pf.kyc.docType')}
               <select value={kycForm.document_type} onChange={(e) => setKycForm({ ...kycForm, document_type: e.target.value })}>
                 {['ID card', 'Passport', 'Driver license'].map((d) => <option key={d}>{d}</option>)}
               </select>
             </label>
             <div className="row2">
               <label className="file-drop">
-                Front of document (required)
+                {t('pf.kyc.docFront')} ({t('pf.required')})
                 <input type="file" accept="image/*" required onChange={(e) => setKycForm({ ...kycForm, document_front: e.target.files[0] })} />
                 <small>{kycForm.document_front?.name || 'JPG / PNG'}</small>
               </label>
               <label className="file-drop">
-                Back of document
+                {t('pf.kyc.docBack')}
                 <input type="file" accept="image/*" onChange={(e) => setKycForm({ ...kycForm, document_back: e.target.files[0] })} />
-                <small>{kycForm.document_back?.name || 'Optional'}</small>
+                <small>{kycForm.document_back?.name || t('pf.optional')}</small>
               </label>
             </div>
             <label className="file-drop">
-              Selfie with ID (required)
+              {t('pf.kyc.selfie')} ({t('pf.required')})
               <input type="file" accept="image/*" required onChange={(e) => setKycForm({ ...kycForm, selfie: e.target.files[0] })} />
               <small>{kycForm.selfie?.name || 'JPG / PNG'}</small>
             </label>
-            <button className="btn primary block" disabled={busy}>Submit for review</button>
+            <button className="btn primary block" disabled={busy}>{busy ? t('pf.kyc.submitting') : t('pf.kyc.submit')}</button>
           </form>
         )}
       </div>
 
       <div className="card form">
-        <h3>Your crypto accounts</h3>
-        <p className="small muted">These addresses receive withdrawals and admin payouts.</p>
+        <h3>{t('pf.acc.title')}</h3>
+        <p className="small muted">{t('pf.acc.hint')}</p>
         <div className="acc-list">
           {accounts.map((a) => (
             <div className="acc-row" key={a.id}>
@@ -226,33 +267,33 @@ export default function Profile() {
                 <b>{a.coin_symbol}</b>
                 <code className="tx">{a.address}</code>
               </div>
-              {a.is_primary && <span className="pill pill-light">primary</span>}
-              <button className="icon-btn danger" onClick={() => delAccount(a.id)} title="Delete"><Trash2 size={16} /></button>
+              {a.is_primary && <span className="pill pill-light">{t('pf.acc.primary')}</span>}
+              <button className="icon-btn danger" onClick={() => delAccount(a.id)} title={t('common.delete')}><Trash2 size={16} /></button>
             </div>
           ))}
-          {accounts.length === 0 && <p className="muted small">No accounts added yet.</p>}
+          {accounts.length === 0 && <p className="muted small">{t('pf.acc.none')}</p>}
         </div>
         <form className="row-grid" onSubmit={addAccount}>
-          <label>Coin
+          <label>{t('invest.coin')}
             <select value={accForm.coin ?? ''} onChange={(e) => setAccForm({ ...accForm, coin: Number(e.target.value) })} required>
               {coins.map((c) => <option key={c.id} value={c.id}>{c.symbol}</option>)}
             </select>
           </label>
-          <label className="grow">Address
-            <input value={accForm.address} onChange={(e) => setAccForm({ ...accForm, address: e.target.value })} placeholder="Wallet address" required />
+          <label className="grow">{t('pf.acc.address')}
+            <input value={accForm.address} onChange={(e) => setAccForm({ ...accForm, address: e.target.value })} placeholder={t('wd.addressPlaceholder')} required />
           </label>
-          <button className="btn primary" disabled={busy}><Plus size={16} /> Add</button>
+          <button className="btn primary" disabled={busy}><Plus size={16} /> {t('pf.acc.add')}</button>
         </form>
       </div>
 
       <div className="card form danger-zone">
-        <h3>Account</h3>
+        <h3>{t('pf.danger')}</h3>
         <div className="row-actions">
           <button className="btn ghost" onClick={() => logout()}>
-            <LogOut size={16} /> Log out
+            <LogOut size={16} /> {t('nav.logout')}
           </button>
           <button className="btn danger" onClick={delAccountAll}>
-            <Trash2 size={16} /> Delete account
+            <Trash2 size={16} /> {t('pf.deleteAccount')}
           </button>
         </div>
       </div>

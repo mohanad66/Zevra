@@ -40,6 +40,7 @@ urlpatterns = [
     path("admin/users/<int:pk>/balance/", views.AdminBalanceAdjustView.as_view(), name="admin_user_balance"),
     path("admin/kyc/", views.AdminKycReviewListView.as_view(), name="admin_kyc_list"),
     path("admin/kyc/<int:pk>/review/", views.AdminKycReviewActionView.as_view(), name="admin_kyc_review"),
+    path("admin/kyc/<int:pk>/file/<str:field>/", views.AdminKycFileView.as_view(), name="admin_kyc_file"),
     path("admin/payments/", views.AdminPaymentSettingsView.as_view(), name="admin_payments"),
     path("admin/payments/test/", views.AdminProviderTestView.as_view(), name="admin_payments_test"),
     path("admin/payments/wallets/<int:pk>/", views.AdminPaymentWalletDeleteView.as_view(), name="admin_payment_wallet_delete"),
@@ -63,4 +64,13 @@ urlpatterns = [
 
     # referrals
     path("referrals/", views.ReferralView.as_view(), name="referrals"),
+
+    # notifications
+    path("notifications/", views.NotificationListView.as_view(), name="notifications"),
+    path("notifications/unread-count/", views.NotificationUnreadCountView.as_view(), name="notifications_unread"),
+    path("notifications/read/", views.NotificationMarkReadView.as_view(), name="notifications_read"),
+
+    # admin: notifications + platform settings
+    path("admin/notifications/", views.AdminNotificationView.as_view(), name="admin_notifications"),
+    path("admin/settings/", views.AdminPlatformSettingsView.as_view(), name="admin_settings"),
 ]

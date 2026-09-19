@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
+import { useI18n } from '../i18n'
 import { fmtCrypto, StatusBadge } from '../components/Format'
 import { ArrowDownToLine } from 'lucide-react'
 
 export default function Withdraw() {
   const { apiError } = useAuth()
   const { toast } = useToast()
+  const { t } = useI18n()
   const [settings, setSettings] = useState(null)
   const [wallets, setWallets] = useState([])
   const [accounts, setAccounts] = useState([])
@@ -69,26 +71,26 @@ export default function Withdraw() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h2>Withdraw</h2>
-          <p>Move your withdrawable balance (awards & payouts) to your own crypto account.</p>
+          <h2>{t('wd.title')}</h2>
+          <p>{t('wd.subtitle')}</p>
         </div>
       </div>
 
       {settings?.kyc_required_to_withdraw && (
         <div className="notice warn">
-          KYC verification is required to withdraw. <Link to="/profile">Get verified →</Link>
+          {t('wd.kycRequired')} <Link to="/profile">{t('wd.getVerified')}</Link>
         </div>
       )}
 
       {settings?.withdraw_cooldown_hours > 0 && (
         <div className="notice">
-          A {settings.withdraw_cooldown_hours}h cooldown applies between withdrawals.
+          {t('wd.cooldown', { hours: settings.withdraw_cooldown_hours })}
         </div>
       )}
 
       <form className="card form" onSubmit={submit}>
         <label>
-          Coin
+          {t('wd.coin')}
           <select value={coinId ?? ''} onChange={(e) => {
             const c = wallets.find((w) => w.coin.id === Number(e.target.value))
             setCoinId(Number(e.target.value))
@@ -96,7 +98,7 @@ export default function Withdraw() {
           }}>
             {wallets.map((w) => (
               <option key={w.coin.id} value={w.coin.id}>
-                {w.coin.symbol} — withdrawable {fmtCrypto(w.withdrawable_balance)}
+                {w.coin.symbol} — {t('wd.withdrawable')} {fmtCrypto(w.withdrawable_balance)}
               </option>
             ))}
           </select>
@@ -104,15 +106,15 @@ export default function Withdraw() {
 
         {wallet && (
           <div className="invest-summary">
-            <span><i>Withdrawable</i><b>{fmtCrypto(wallet.withdrawable_balance)} {wallet.coin.symbol}</b></span>
-            <span><i>Fee</i><b>{feePct}% + network</b></span>
-            <span><i>Min amount</i><b>{settings?.min_withdrawal ?? 0} {wallet.coin.symbol}</b></span>
-            <span><i>You receive</i><b>{fmtCrypto(netAmount)} {wallet.coin.symbol}</b></span>
+            <span><i>{t('wd2.withdrawable')}</i><b>{fmtCrypto(wallet.withdrawable_balance)} {wallet.coin.symbol}</b></span>
+            <span><i>{t('wd.fee')}</i><b>{feePct}% + {t('wd.network')}</b></span>
+            <span><i>{t('wd.minAmount')}</i><b>{settings?.min_withdrawal ?? 0} {wallet.coin.symbol}</b></span>
+            <span><i>{t('wd.youReceive')}</i><b>{fmtCrypto(netAmount)} {wallet.coin.symbol}</b></span>
           </div>
         )}
 
         <label>
-          Amount
+          {t('wd.amountLabel')}
           <input
             type="number"
             min="0"
@@ -125,12 +127,12 @@ export default function Withdraw() {
         </label>
         <div className="quick-amounts">
           <button type="button" className="chip" onClick={() => setAmount(String(wallet?.withdrawable_balance ?? ''))}>
-            Max ({wallet ? fmtCrypto(wallet.withdrawable_balance) : '—'})
+            {t('wd.max')} ({wallet ? fmtCrypto(wallet.withdrawable_balance) : '—'})
           </button>
         </div>
 
         <label>
-          Network
+          {t('wd.network')}
           <select value={network} onChange={(e) => setNetwork(e.target.value)}>
             {['TRC20', 'ERC20', 'BEP20', 'BEP2', 'SOL', 'TON'].map((n) => (
               <option key={n}>{n}</option>
@@ -139,18 +141,18 @@ export default function Withdraw() {
         </label>
 
         <label>
-          Receive to crypto account
+          {t('wd.receiveTo')}
           <input
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="Your wallet address"
+            placeholder={t('wd.addressPlaceholder')}
             required
           />
         </label>
         {accounts.length > 0 && (
           <div className="saved-accounts">
-            <span className="muted small">Saved accounts</span>
-            {accounts.filter((a) => !coinId || a.coin === coinId || true).map((a) => (
+            <span className="muted small">{t('wd.savedAccounts')}</span>
+            {accounts.filter(() => true).map((a) => (
               <button
                 key={a.id}
                 type="button"
@@ -164,19 +166,19 @@ export default function Withdraw() {
         )}
 
         <button className="btn primary lg block" disabled={busy}>
-          <ArrowDownToLine size={18} /> {busy ? 'Processing…' : 'Request withdrawal'}
+          <ArrowDownToLine size={18} /> {busy ? t('common.busy') : t('wd.request')}
         </button>
         <p className="small muted center">
-          <Link to="/payouts">View admin payouts →</Link>
+          <Link to="/payouts">{t('wd.viewPayouts')}</Link>
         </p>
       </form>
 
       {withdrawals.length > 0 && (
         <section className="section">
-          <h3>Your withdrawals</h3>
+          <h3>{t('wd.history')}</h3>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Amount</th><th>Address</th><th>Status</th><th>Date</th></tr></thead>
+              <thead><tr><th>{t('wd.amountLabel')}</th><th>{t('wd.tAddress')}</th><th>{t('common.status')}</th><th>{t('common.date')}</th></tr></thead>
               <tbody>
                 {withdrawals.map((w2) => (
                   <tr key={w2.id}>

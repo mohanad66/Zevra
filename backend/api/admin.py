@@ -10,6 +10,7 @@ from api.models import (
     CryptoAccount,
     Investment,
     KYCSubmission,
+    Notification,
     Payout,
     PayoutWindow,
     PaymentOrder,
@@ -20,7 +21,12 @@ from api.models import (
     Wallet,
     Withdrawal,
 )
-from api.services import send_platform_to_user
+from api.referrals import referral_tree_counts
+from api.services import (
+    _payout_order_ref,
+    _withdrawal_order_ref,
+    send_platform_to_user,
+)
 
 
 class InviteFilter(admin.SimpleListFilter):
@@ -42,18 +48,32 @@ class InviteFilter(admin.SimpleListFilter):
 class UserAdmin(BaseUserAdmin):
     list_display = (
         "email", "full_name", "phone", "invite_code", "referred_by",
+        "level1_count", "level2_count", "level3_count",
         "kyc_verified", "is_frozen", "is_active", "is_staff", "created_at",
     )
     list_filter = ("is_active", "is_staff", "is_superuser", "kyc_verified", "is_frozen", InviteFilter)
     search_fields = ("email", "first_name", "last_name", "phone", "invite_code")
     ordering = ("-created_at",)
     fieldsets = BaseUserAdmin.fieldsets + (
-        ("Zevra profile", {"fields": ("phone", "avatar", "invite_code", "referred_by", "kyc_verified", "kyc_rejected", "is_frozen", "banned_until")}),
+        ("Referral tree", {"fields": ("level1_count", "level2_count", "level3_count")}),
+        ("Miyar Trading profile", {"fields": ("phone", "avatar", "invite_code", "referred_by", "kyc_verified", "kyc_rejected", "is_frozen", "banned_until")}),
     )
     add_fieldsets = BaseUserAdmin.add_fieldsets + (
-        ("Zevra profile", {"fields": ("email", "first_name", "last_name", "phone", "referred_by")}),
+        ("Miyar Trading profile", {"fields": ("email", "first_name", "last_name", "phone", "referred_by")}),
     )
-    readonly_fields = ("created_at",)
+    readonly_fields = ("created_at", "level1_count", "level2_count", "level3_count")
+
+    @admin.display(description="L1 invites")
+    def level1_count(self, obj):
+        return referral_tree_counts(obj)[1]
+
+    @admin.display(description="L2 invites")
+    def level2_count(self, obj):
+        return referral_tree_counts(obj)[2]
+
+    @admin.display(description="L3 invites")
+    def level3_count(self, obj):
+        return referral_tree_counts(obj)[3]
 
     actions = ["freeze_users", "unfreeze_users", "mark_kyc_approved", "mark_kyc_rejected", "grant_bonus"]
 
@@ -193,19 +213,40 @@ class WithdrawalAdmin(admin.ModelAdmin):
 
     @admin.action(description="Approve & pay selected withdrawals")
     def approve_withdrawals(self, request, queryset):
+        from api.models import PlatformSettings
+
+        provider = (
+            PlatformSettings.get(PlatformSettings.S_PAYMENT_MODE, "simulate").lower()
+            == "provider"
+        )
         sent = 0
         for wd in queryset.filter(status=Withdrawal.STATUS_PENDING):
             try:
-                tx = send_platform_to_user(wd.coin, wd.address, wd.amount, wd.network)
-                wd.status = Withdrawal.STATUS_COMPLETED
-                wd.tx_hash = tx
-                wd.save(update_fields=["status", "tx_hash", "updated_at"])
+                ref = send_platform_to_user(
+                    wd.coin,
+                    wd.address,
+                    wd.amount,
+                    wd.network,
+                    order_ref=_withdrawal_order_ref(wd.pk),
+                    user=wd.user,
+                )
+                if provider:
+                    wd.status = Withdrawal.STATUS_PROCESSING
+                    wd.provider_id = ref
+                    wd.save(update_fields=["status", "provider_id", "updated_at"])
+                else:
+                    wd.status = Withdrawal.STATUS_COMPLETED
+                    wd.tx_hash = ref
+                    wd.save(update_fields=["status", "tx_hash", "updated_at"])
                 sent += 1
             except Exception as exc:  # noqa: BLE001
                 wd.status = Withdrawal.STATUS_FAILED
                 wd.reject_reason = f"Transfer failed: {exc}"
                 wd.save(update_fields=["status", "reject_reason", "updated_at"])
-        self.message_user(request, f"{sent} withdrawal(s) paid out.")
+        self.message_user(
+            request,
+            f"{sent} withdrawal(s) {'dispatched to PayRam' if provider else 'paid out'}.",
+        )
 
     @admin.action(description="Reject selected withdrawals (refund balance)")
     def reject_withdrawals(self, request, queryset):
@@ -238,19 +279,40 @@ class PayoutAdmin(admin.ModelAdmin):
 
     @admin.action(description="Pay selected payouts (auto-transfer from platform wallet)")
     def pay_payouts(self, request, queryset):
+        from api.models import PlatformSettings
+
+        provider = (
+            PlatformSettings.get(PlatformSettings.S_PAYMENT_MODE, "simulate").lower()
+            == "provider"
+        )
         sent = 0
         for po in queryset.filter(status=Payout.STATUS_PROCESSING):
             try:
-                tx = send_platform_to_user(po.coin, po.destination_address, po.amount, po.coin.chain)
-                po.status = Payout.STATUS_COMPLETED
-                po.tx_hash = tx
-                po.save(update_fields=["status", "tx_hash", "updated_at"])
+                ref = send_platform_to_user(
+                    po.coin,
+                    po.destination_address,
+                    po.amount,
+                    po.coin.chain,
+                    order_ref=_payout_order_ref(po.pk),
+                    user=po.user,
+                )
+                if provider:
+                    po.status = Payout.STATUS_PROCESSING
+                    po.provider_id = ref
+                    po.save(update_fields=["status", "provider_id", "updated_at"])
+                else:
+                    po.status = Payout.STATUS_COMPLETED
+                    po.tx_hash = ref
+                    po.save(update_fields=["status", "tx_hash", "updated_at"])
                 sent += 1
             except Exception as exc:  # noqa: BLE001
                 po.status = Payout.STATUS_FAILED
                 po.note = f"{po.note}\nTransfer failed: {exc}".strip()
                 po.save(update_fields=["status", "note", "updated_at"])
-        self.message_user(request, f"{sent} payout(s) sent.")
+        self.message_user(
+            request,
+            f"{sent} payout(s) {'dispatched to PayRam' if provider else 'sent'}.",
+        )
 
     @admin.action(description="Mark selected payouts as failed")
     def fail_payouts(self, request, queryset):
@@ -324,17 +386,32 @@ DEFAULT_PLATFORM_SETTINGS = [
     (PlatformSettings.S_REFERRAL_L1, "1", "Referral award - level 1 (direct invite), % of investment"),
     (PlatformSettings.S_REFERRAL_L2, "0.5", "Referral award - level 2, % of investment"),
     (PlatformSettings.S_REFERRAL_L3, "0.25", "Referral award - level 3, % of investment"),
-    (PlatformSettings.S_WITHDRAW_COOLDOWN_HOURS, "24", "Minimum hours between user withdrawals"),
-    (PlatformSettings.S_PAYOUT_COOLDOWN_HOURS, "0", "Minimum hours between admin payouts to a user"),
+    (PlatformSettings.S_WITHDRAW_COOLDOWN_HOURS, "24", "Withdraw cooldown - hours part"),
+    (PlatformSettings.S_WITHDRAW_COOLDOWN_DAYS, "0", "Withdraw cooldown - days part"),
+    (PlatformSettings.S_WITHDRAW_COOLDOWN_WEEKS, "0", "Withdraw cooldown - weeks part"),
+    (PlatformSettings.S_WITHDRAW_COOLDOWN_MONTHS, "0", "Withdraw cooldown - months part"),
+    (PlatformSettings.S_PAYOUT_COOLDOWN_HOURS, "0", "Payout cooldown - hours part"),
+    (PlatformSettings.S_PAYOUT_COOLDOWN_DAYS, "0", "Payout cooldown - days part"),
+    (PlatformSettings.S_PAYOUT_COOLDOWN_WEEKS, "0", "Payout cooldown - weeks part"),
+    (PlatformSettings.S_PAYOUT_COOLDOWN_MONTHS, "0", "Payout cooldown - months part"),
+    (PlatformSettings.S_MIN_INVESTMENT, "0", "Minimum investment amount"),
+    (PlatformSettings.S_PAYOUT_PERCENT, "10", "Payout percent used when opening a window"),
+    (PlatformSettings.S_PAYOUT_DURATION_HOURS, "48", "Payout window open duration in hours"),
     (PlatformSettings.S_KYC_REQUIRED_TO_INVEST, "0", "Require KYC before a user can invest (1/0)"),
     (PlatformSettings.S_KYC_REQUIRED_TO_WITHDRAW, "0", "Require KYC before a user can withdraw (1/0)"),
     (PlatformSettings.S_WITHDRAW_FEE_PERCENT, "1", "Network fee charged on withdrawal, % of amount"),
     (PlatformSettings.S_BONUS_PERCENT, "5", "Profit/seasonal bonus granted by admin, % of invested balance"),
     (PlatformSettings.S_MIN_WITHDRAWAL, "10", "Minimum withdrawal amount"),
-    (PlatformSettings.S_PAYMENT_MODE, "simulate", "simulate | provider | manual"),
-    (PlatformSettings.S_PAYMENT_PROVIDER_URL, "", "Gateway API base URL (CoinGate / NOWPayments / Binance Pay / Coinbase Commerce)"),
-    (PlatformSettings.S_PAYMENT_PROVIDER_KEY, "", "Gateway API key / secret"),
-    (PlatformSettings.S_PAYMENT_WEBHOOK_TOKEN, "dev-gateway-secret", "Shared secret signed into webhook callbacks (HMAC-SHA256)"),
+    (PlatformSettings.S_PAYMENT_MODE, "simulate", "simulate | provider (PayRam) | manual"),
+    (PlatformSettings.S_PAYMENT_PROVIDER_URL, "", "(legacy) provider API base URL"),
+    (PlatformSettings.S_PAYMENT_PROVIDER_KEY, "", "(legacy) provider API key"),
+    (PlatformSettings.S_PAYMENT_PROVIDER_SECRET, "", "(legacy) provider API secret"),
+    (PlatformSettings.S_PAYMENT_WEBHOOK_TOKEN, "dev-gateway-secret", "Shared secret signed into legacy webhook callbacks (HMAC-SHA256)"),
+    (PlatformSettings.S_PAYRAM_MODE, "test", "PayRam environment: test | production"),
+    (PlatformSettings.S_PAYRAM_BASE_URL_TEST, "", "PayRam test BASE_URL — Settings > Site URL on the PayRam dashboard"),
+    (PlatformSettings.S_PAYRAM_API_KEY_TEST, "", "PayRam test project API key (Project > API Keys)"),
+    (PlatformSettings.S_PAYRAM_BASE_URL_PROD, "", "PayRam production BASE_URL — Settings > Site URL on the PayRam dashboard"),
+    (PlatformSettings.S_PAYRAM_API_KEY_PROD, "", "PayRam production project API key (Project > API Keys)"),
 ]
 
 admin.site.register(PriceSnapshot)
@@ -361,3 +438,10 @@ def seed_platform_settings(modeladmin, request, queryset):
 
 PlatformSettingsAdmin.actions = [seed_platform_settings]
 seed_platform_settings.short_description = "Create default platform settings"
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ("type", "title", "user", "is_read", "created_at")
+    list_filter = ("type", "is_read")
+    search_fields = ("title", "title_ar", "body")

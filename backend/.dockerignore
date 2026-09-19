@@ -1,0 +1,18 @@
+# local python tooling / secrets / data must never enter the image
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+
+.env
+.env.*
+db.sqlite3
+media/
+staticfiles/
+server.err.log
+server.out.log
+.server.pid
+.git/
+.gitignore
+README.md
+Dockerfile.darwin

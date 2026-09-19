@@ -8,13 +8,38 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-$pzj(ybh2hy*tw*1f7l=$kc5dhfsbne#+i^yh=2y_yfa(90mfq")
+# "development" (default, local) or "production". Production flips safe defaults.
+ENV = os.environ.get("DJANGO_ENV", "development").strip().lower()
+IS_PRODUCTION = ENV == "production"
 
-DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-$pzj(ybh2hy*tw*1f7l=$kc5dhfsbne#+i^yh=2y_yfa(90mfq",
+)
 
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
+DEBUG = os.environ.get("DJANGO_DEBUG", "0" if IS_PRODUCTION else "1") == "1"
+
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "*" if DEBUG else "").split(",")
+    if h.strip()
+]
+
+if IS_PRODUCTION:
+    if SECRET_KEY.startswith("django-insecure-"):
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY must be set to a strong random value in production."
+        )
+    if DEBUG:
+        raise ImproperlyConfigured("DJANGO_DEBUG must not be enabled in production.")
+    if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
+        raise ImproperlyConfigured(
+            "DJANGO_ALLOWED_HOSTS must list real hostnames in production."
+        )
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -60,12 +85,31 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "backend.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.environ.get("DJANGO_DB", BASE_DIR / "db.sqlite3"),
+# Database. SQLite for local dev; PostgreSQL for production / high concurrency.
+# Set DB_ENGINE=postgres plus DB_NAME/DB_USER/DB_PASSWORD/DB_HOST/DB_PORT.
+DB_ENGINE = os.environ.get("DB_ENGINE", "").strip().lower()
+if DB_ENGINE in {"postgres", "postgresql"}:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("DB_NAME", "miyartrading"),
+            "USER": os.environ.get("DB_USER", "miyartrading"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": os.environ.get("DB_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("DB_PORT", "5432"),
+            "CONN_MAX_AGE": int(os.environ.get("DB_CONN_MAX_AGE", "600")),
+            "CONN_HEALTH_CHECKS": True,
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.environ.get("DJANGO_DB", BASE_DIR / "db.sqlite3"),
+            "CONN_MAX_AGE": int(os.environ.get("DB_CONN_MAX_AGE", "0")),
+            "OPTIONS": {"timeout": 20},
+        }
+    }
 
 AUTH_USER_MODEL = "api.User"
 
@@ -88,6 +132,55 @@ MEDIA_ROOT = os.environ.get("DJANGO_MEDIA_ROOT", BASE_DIR / "media")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Cache. Redis when REDIS_URL is set (Django's built-in backend, no extra
+# package), otherwise a per-process local memory cache (single dev worker).
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "miyartrading-default",
+        }
+    }
+
+# Logging: structured console output suitable for container/process managers.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "style": "{",
+        }
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": os.environ.get("DJANGO_LOG_LEVEL", "INFO"),
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "api": {
+            "handlers": ["console"],
+            "level": os.environ.get("DJANGO_LOG_LEVEL", "INFO"),
+            "propagate": False,
+        },
+    },
+}
+
 # CORS
 CORS_ALLOWED_ORIGINS = [
     o.strip()
@@ -99,6 +192,18 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_ALL_ORIGINS = os.environ.get("CORS_ALLOW_ALL_ORIGINS", "1" if DEBUG else "0") == "1"
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-lang",
+    "x-requested-with",
+]
 
 # DRF + JWT
 REST_FRAMEWORK = {
@@ -108,6 +213,18 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    # Abuse protection: per-IP (anon) and per-user rate limits, plus opt-in
+    # scoped limits on sensitive endpoints (views set ``throttle_scope``).
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": os.environ.get("THROTTLE_ANON", "120/min"),
+        "user": os.environ.get("THROTTLE_USER", "6000/min"),
+        "auth": os.environ.get("THROTTLE_AUTH", "20/min"),
+    },
 }
 
 SIMPLE_JWT = {
@@ -127,4 +244,16 @@ EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") == "1"
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Zevra <no-reply@zevra.io>")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Miyar Trading <no-reply@miyartrading.com>")
+
+# Production-only transport security (HTTPS, HSTS, secure cookies).
+if not DEBUG:
+    SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "1") == "1"
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_REFERRER_POLICY = "same-origin"

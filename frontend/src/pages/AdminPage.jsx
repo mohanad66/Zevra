@@ -2,27 +2,36 @@ import { useEffect, useState } from 'react'
 import { client } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
+import { useI18n } from '../i18n'
 import { fmt, fmtCrypto, StatusBadge } from '../components/Format'
 import {
-  Shield, Clock, Users, Search, Coins, Plus, X, Check, Lock, Unlock,
-  Ban, Wallet, PlugZap, Trash2, ListOrdered, RefreshCw, Eye,
+  Shield, Clock, Users, UserCheck, Search, Coins, Plus, X, Check, Lock, Unlock,
+  Ban, Wallet, PlugZap, Trash2, ListOrdered, RefreshCw, Eye, Bell, Settings2,
 } from 'lucide-react'
 
 const MODES = ['simulate', 'provider', 'manual']
 
+const COOLDOWN_UNITS = {
+  months: 'unitMonths',
+  weeks: 'unitWeeks',
+  days: 'unitDays',
+  hours: 'unitHours',
+}
+
+const COOLDOWN_GROUPS = [
+  { prefix: 'withdraw_cooldown', titleKey: 'withdrawCooldown' },
+  { prefix: 'payout_cooldown', titleKey: 'payoutCooldown' },
+]
+
 export default function AdminPage() {
   const { apiError } = useAuth()
   const { toast } = useToast()
+  const { t } = useI18n()
   const [tab, setTab] = useState('windows')
   const [windows, setWindows] = useState([])
   const [users, setUsers] = useState([])
   const [coins, setCoins] = useState([])
   const [q, setQ] = useState('')
-  const [createOpen, setCreateOpen] = useState(false)
-  const [formBusy, setFormBusy] = useState(false)
-  const [form, setForm] = useState({ title: '', percent: '10', coin: '', duration_hours: '48', target_mode: 'all', target_emails: '' })
-  const [percentDraft, setPercentDraft] = useState({})
-
   const [pickWindow, setPickWindow] = useState(null)
   const [pickUsers, setPickUsers] = useState([])
   const [pickSel, setPickSel] = useState(new Set())
@@ -38,9 +47,12 @@ export default function AdminPage() {
   const [kycList, setKycList] = useState([])
   const [kycStatus, setKycStatus] = useState('pending')
   const [kycBusy, setKycBusy] = useState(false)
+  const [previewImg, setPreviewImg] = useState(null)
+  const [previewLabel, setPreviewLabel] = useState('')
 
-  const [pay, setPay] = useState({ payment_mode: 'simulate', provider: {}, platform_wallets: [] })
-  const [providerForm, setProviderForm] = useState({ provider_url: '', provider_key: '', store_id: '', webhook_token: '', callback_url: '', success_url: '' })
+  const [pay, setPay] = useState({ payment_mode: 'simulate', provider: {}, payram: {}, platform_wallets: [] })
+  const [providerForm, setProviderForm] = useState({ provider_url: '', provider_key: '', provider_secret: '', store_id: '', webhook_token: '', callback_url: '', success_url: '' })
+  const [payramForm, setPayramForm] = useState({ payram_mode: 'test', payram_base_url_test: '', payram_api_key_test: '', payram_base_url_production: '', payram_api_key_production: '' })
   const [walletForm, setWalletForm] = useState({ wallet_coin_id: '', wallet_address: '', wallet_label: 'Platform wallet' })
   const [streetBusy, setStreetBusy] = useState(false)
   const [testResult, setTestResult] = useState('')
@@ -48,6 +60,17 @@ export default function AdminPage() {
   const [orders, setOrders] = useState([])
   const [orderStatus, setOrderStatus] = useState('all')
   const [ordersBusy, setOrdersBusy] = useState(false)
+
+  const [plats, setPlats] = useState({ _meta: [] })
+  const [platDraft, setPlatDraft] = useState({})
+  const [settingsBusy, setSettingsBusy] = useState(false)
+
+  const [annList, setAnnList] = useState([])
+  const [annBusy, setAnnBusy] = useState(false)
+  const [annForm, setAnnForm] = useState({
+    title: '', title_ar: '', body: '', body_ar: '', link: '', target: 'all',
+  })
+  const [annSending, setAnnSending] = useState(false)
 
   async function loadWindows() {
     try {
@@ -89,6 +112,24 @@ export default function AdminPage() {
     finally { setOrdersBusy(false) }
   }
 
+  async function loadSettings() {
+    setSettingsBusy(true)
+    try {
+      const res = await client.get('/admin/settings/')
+      setPlats(res.data)
+    } catch (err) { toast(apiError(err), 'error') }
+    finally { setSettingsBusy(false) }
+  }
+
+  async function loadAnnouncements() {
+    setAnnBusy(true)
+    try {
+      const res = await client.get('/admin/notifications/')
+      setAnnList(res.data)
+    } catch (err) { toast(apiError(err), 'error') }
+    finally { setAnnBusy(false) }
+  }
+
   useEffect(() => {
     client.get('/coins/').then((r) => setCoins(r.data)).catch(() => {})
     loadWindows()
@@ -96,6 +137,8 @@ export default function AdminPage() {
     loadKyc()
     loadPayments()
     loadOrders()
+    loadSettings()
+    loadAnnouncements()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -108,29 +151,6 @@ export default function AdminPage() {
 
   useEffect(() => { loadOrders() }, [orderStatus])
 
-  async function createWindow(e) {
-    e.preventDefault()
-    setFormBusy(true)
-    try {
-      const payload = {
-        title: form.title,
-        percent: parseFloat(form.percent),
-        duration_hours: parseInt(form.duration_hours, 10),
-        target_mode: form.target_mode,
-      }
-      if (form.coin) payload.coin = parseInt(form.coin, 10)
-      if (form.target_mode === 'specific' && form.target_emails.trim()) {
-        payload.target_emails = form.target_emails.split(',').map((e) => e.trim()).filter(Boolean)
-      }
-      await client.post('/admin/payout-windows/', payload)
-      toast('Window created', 'success')
-      setForm({ title: '', percent: '10', coin: '', duration_hours: '48', target_mode: 'all', target_emails: '' })
-      setCreateOpen(false)
-      loadWindows()
-    } catch (err) { toast(apiError(err), 'error') }
-    finally { setFormBusy(false) }
-  }
-
   async function toggleWindow(id, active) {
     try {
       const res = await client.post(`/admin/payout-windows/${id}/toggle/`, { active })
@@ -139,27 +159,15 @@ export default function AdminPage() {
     } catch (err) { toast(apiError(err), 'error') }
   }
 
-  async function savePercent(id) {
-    try {
-      const val = parseFloat(percentDraft[id])
-      if (Number.isNaN(val) || val <= 0) {
-        toast('Enter a positive percent', 'error')
-        return
-      }
-      const res = await client.post(`/admin/payout-windows/${id}/toggle/`, { percent: val })
-      toast(res.data.message, 'success')
-      setPercentDraft((p) => { const n = { ...p }; delete n[id]; return n })
-      loadWindows()
-    } catch (err) { toast(apiError(err), 'error') }
-  }
-
-  async function openWindow(id, ids = []) {
+  async function openFlow(ids = []) {
     setPickBusy(true)
     try {
-      const res = await client.post(`/admin/payout-windows/${id}/toggle/`, {
-        active: true,
-        target_user_ids: ids,
-      })
+      const current = windows[0]
+      const payload = { active: true }
+      if (ids.length) payload.target_user_ids = ids
+      const res = current
+        ? await client.post(`/admin/payout-windows/${current.id}/toggle/`, payload)
+        : await client.post('/admin/payout-windows/', payload)
       toast(res.data.message, 'success')
       setPickWindow(null)
       setPickSel(new Set())
@@ -170,7 +178,7 @@ export default function AdminPage() {
 
   function openPicker(w) {
     setPickWindow(w)
-    setPickSel(new Set(w.target_users || []))
+    setPickSel(new Set(w?.target_users || []))
     setPickQ('')
     client.get('/admin/users/')
       .then((res) => setPickUsers(res.data))
@@ -208,7 +216,7 @@ export default function AdminPage() {
         withdrawable_delta: modal.withdrawable_delta || '0',
         note: modal.note || '',
       })
-      toast('Balance updated', 'success')
+      toast(t('admin.toast.balanceUpdated'), 'success')
       setBalanceUser(null)
       setModal({})
       loadUsers()
@@ -237,7 +245,7 @@ export default function AdminPage() {
   async function reviewKyc(id, action) {
     let body = { action }
     if (action === 'reject') {
-      const reason = window.prompt('Reason for rejection:')
+      const reason = window.prompt(t('admin.kyc.reasonPrompt'))
       if (reason === null) return
       body.reason = reason
     }
@@ -249,12 +257,27 @@ export default function AdminPage() {
     } catch (err) { toast(apiError(err), 'error') }
   }
 
+  async function previewKyc(id, field, label) {
+    try {
+      const res = await client.get(`/admin/kyc/${id}/file/${field}/`, { responseType: 'blob' })
+      const url = URL.createObjectURL(res.data)
+      setPreviewImg(url)
+      setPreviewLabel(label)
+    } catch (err) { toast(apiError(err), 'error') }
+  }
+
+  function closePreview() {
+    if (previewImg) URL.revokeObjectURL(previewImg)
+    setPreviewImg(null)
+    setPreviewLabel('')
+  }
+
   async function saveMode(e) {
     e.preventDefault()
     setStreetBusy(true)
     try {
       await client.post('/admin/payments/', { payment_mode: pay.payment_mode })
-      toast('Payment mode saved', 'success')
+      toast(t('admin.toast.modeSaved'), 'success')
       loadPayments()
     } catch (err) { toast(apiError(err), 'error') }
     finally { setStreetBusy(false) }
@@ -264,9 +287,10 @@ export default function AdminPage() {
     e.preventDefault()
     setStreetBusy(true)
     try {
-      await client.post('/admin/payments/', providerForm)
-      toast('Provider settings saved', 'success')
+      await client.post('/admin/payments/', { ...providerForm, ...payramForm })
+      toast(t('admin.toast.providerSaved'), 'success')
       setProviderForm({ provider_url: '', provider_key: '', store_id: '', webhook_token: '', callback_url: '', success_url: '' })
+      setPayramForm({ payram_mode: 'test', payram_base_url_test: '', payram_api_key_test: '', payram_base_url_production: '', payram_api_key_production: '' })
       loadPayments()
     } catch (err) { toast(apiError(err), 'error') }
     finally { setStreetBusy(false) }
@@ -277,7 +301,7 @@ export default function AdminPage() {
     setStreetBusy(true)
     try {
       await client.post('/admin/payments/', walletForm)
-      toast('Platform wallet saved', 'success')
+      toast(t('admin.toast.walletSaved'), 'success')
       setWalletForm({ wallet_coin_id: '', wallet_address: '', wallet_label: 'Platform wallet' })
       loadPayments()
     } catch (err) { toast(apiError(err), 'error') }
@@ -297,7 +321,7 @@ export default function AdminPage() {
     try {
       const res = await client.post('/admin/payments/test/', {})
       toast(res.data.message, res.data.ok ? 'success' : 'error')
-      setTestResult(`${res.data.ok ? 'OK' : 'FAILED'} — ${res.data.message}`)
+      setTestResult(`${res.data.ok ? t('admin.pay.ok') : t('admin.pay.failed')} — ${res.data.message}`)
     } catch (err) { toast(apiError(err), 'error') }
   }
 
@@ -310,8 +334,39 @@ export default function AdminPage() {
     } catch (err) { toast(apiError(err), 'error') }
   }
 
-  const f = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+  async function submitSettings(e) {
+    e.preventDefault()
+    setSettingsBusy(true)
+    try {
+      const payload = {}
+      for (const m of plats._meta) {
+        if (!(m.key in platDraft)) continue
+        if (m.type === 'num') payload[m.key] = Number(platDraft[m.key])
+        else if (m.type === 'bool') payload[m.key] = platDraft[m.key] === true
+        else payload[m.key] = platDraft[m.key]
+      }
+      const res = await client.post('/admin/settings/', payload)
+      toast(res.data.message, 'success')
+      setPlatDraft({})
+      loadSettings()
+    } catch (err) { toast(apiError(err), 'error') }
+    finally { setSettingsBusy(false) }
+  }
+
+  async function submitAnnouncement(e) {
+    e.preventDefault()
+    setAnnSending(true)
+    try {
+      await client.post('/admin/notifications/', annForm)
+      toast(t('admin.toast.annSent'), 'success')
+      setAnnForm({ title: '', title_ar: '', body: '', body_ar: '', link: '', target: 'all' })
+      loadAnnouncements()
+    } catch (err) { toast(apiError(err), 'error') }
+    finally { setAnnSending(false) }
+  }
+
   const pf = (e) => setProviderForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+  const prf = (e) => setPayramForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const wf = (e) => setWalletForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const mf = (e) => setModal((p) => ({ ...p, [e.target.name]: e.target.value }))
 
@@ -324,140 +379,92 @@ export default function AdminPage() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h2><Shield size={20} style={{ marginRight: 8, verticalAlign: 'middle' }} />Admin Panel</h2></div>
+        <div><h2><Shield size={20} style={{ marginRight: 8, verticalAlign: 'middle' }} />{t('admin.title')}</h2></div>
       </div>
 
       <div className="tabs" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button className={`btn ${tab === 'windows' ? 'primary' : 'ghost'}`} onClick={() => setTab('windows')}>
-          <Clock size={16} /> Payout Windows
+          <Clock size={16} /> {t('admin.tab.windows')}
         </button>
         <button className={`btn ${tab === 'users' ? 'primary' : 'ghost'}`} onClick={() => setTab('users')}>
-          <Users size={16} /> Users
+          <Users size={16} /> {t('admin.tab.users')}
         </button>
         <button className={`btn ${tab === 'kyc' ? 'primary' : 'ghost'}`} onClick={() => setTab('kyc')}>
-          <Check size={16} /> KYC Review
+          <Check size={16} /> {t('admin.tab.kyc')}
         </button>
         <button className={`btn ${tab === 'payments' ? 'primary' : 'ghost'}`} onClick={() => setTab('payments')}>
-          <Wallet size={16} /> Payments
+          <Wallet size={16} /> {t('admin.tab.payments')}
+        </button>
+        <button className={`btn ${tab === 'notifications' ? 'primary' : 'ghost'}`} onClick={() => setTab('notifications')}>
+          <Bell size={16} /> {t('admin.tab.notifications')}
+        </button>
+        <button className={`btn ${tab === 'settings' ? 'primary' : 'ghost'}`} onClick={() => setTab('settings')}>
+          <Settings2 size={16} /> {t('admin.tab.settings')}
         </button>
       </div>
 
       {tab === 'windows' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3>Open / Close Payout Windows</h3>
-            <button className="btn primary" onClick={() => setCreateOpen((v) => !v)}>
-              {createOpen ? <><X size={16} /> Close</> : <><Coins size={16} /> New Window</>}
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <h3 style={{ margin: 0 }}>{t('admin.win.head')}</h3>
+            <button className="btn ghost" onClick={loadWindows}><RefreshCw size={14} /></button>
           </div>
+          <p className="muted small" style={{ marginBottom: '1rem' }}>{t('admin.win.settingsHint')}</p>
 
-          {createOpen && (
-            <form className="card form" onSubmit={createWindow}>
-              <label>
-                Title
-                <input name="title" value={form.title} onChange={f} placeholder="e.g. Summer bonus 10%" required />
-              </label>
-              <div className="row2">
-                <label>
-                  Payout percent
-                  <input name="percent" type="number" min="0.01" step="0.01" value={form.percent} onChange={f} required />
-                </label>
-                <label>
-                  Duration (hours)
-                  <input name="duration_hours" type="number" min="1" value={form.duration_hours} onChange={f} required />
-                </label>
-              </div>
-              <label>
-                Coin
-                <select name="coin" value={form.coin} onChange={f}>
-                  <option value="">All coins</option>
-                  {coins.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.symbol})</option>)}
-                </select>
-              </label>
-              <label>
-                Target
-                <select name="target_mode" value={form.target_mode} onChange={f}>
-                  <option value="all">All users with invested balance</option>
-                  <option value="specific">Specific users (by email)</option>
-                </select>
-              </label>
-              {form.target_mode === 'specific' && (
-                <label>
-                  Target emails <span className="muted small">(comma-separated)</span>
-                  <textarea name="target_emails" value={form.target_emails} onChange={f} placeholder="user1@example.com, user2@example.com" rows={3} />
-                </label>
-              )}
-              <button className="btn primary lg block" disabled={formBusy} style={{ marginTop: '0.5rem' }}>
-                {formBusy ? 'Creating…' : 'Create window'}
-              </button>
-            </form>
-          )}
-
-          {windows.length === 0 && <p className="muted">No payout windows yet.</p>}
-
-          <div className="wallet-grid" style={{ marginTop: createOpen ? '1.5rem' : 0 }}>
-            {windows.map((w) => (
-              <div key={w.id} className="card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <strong style={{ fontSize: '1.05rem' }}>{w.title}</strong>
-                    <div className="muted small" style={{ marginTop: '0.15rem' }}>
-                      {w.coin ? ` · ${w.coin_symbol}` : ' · All coins'} · {w.duration_hours}h
-                      {!w.is_open && w.target_mode === 'specific' && w.target_users.length > 0 && (
-                        <span style={{ color: 'var(--accent)' }}> · {w.target_users.length} targeted</span>
-                      )}
-                    </div>
+          {windows[0] ? (
+            <div key={windows[0].id} className="card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <strong style={{ fontSize: '1.05rem' }}>{windows[0].title}</strong>
+                  <div className="muted small" style={{ marginTop: '0.15rem' }}>
+                    {t('admin.win.percent')}: {windows[0].percent}% · {t('admin.win.duration')}: {windows[0].duration_hours}h
+                    {!windows[0].is_open && windows[0].target_mode === 'specific' && windows[0].target_users.length > 0 && (
+                      <span style={{ color: 'var(--accent)' }}>{t('admin.win.targeted', { count: windows[0].target_users.length })}</span>
+                    )}
                   </div>
-                  <span className={`pill ${w.is_active ? 'pill-active' : ''}`} style={{ background: w.is_active ? 'var(--accent)' : 'var(--muted-bg)', color: w.is_active ? '#fff' : 'var(--muted)', fontSize: '0.75rem' }}>
-                    {w.is_active ? 'OPEN' : 'CLOSED'}
-                  </span>
                 </div>
-
-                <div className="row2" style={{ gap: '0.5rem' }}>
-                  <label style={{ margin: 0 }}>
-                    Payout %
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={percentDraft[w.id] ?? w.percent}
-                      onChange={(e) =>
-                        setPercentDraft((p) => ({ ...p, [w.id]: e.target.value }))
-                      }
-                      style={{ padding: '0.35rem 0.5rem' }}
-                    />
-                  </label>
-                  <button className="btn ghost" style={{ alignSelf: 'flex-end' }} onClick={() => savePercent(w.id)}>
-                    <Check size={14} /> Save %
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.85rem' }}>
-                  <span><Users size={14} style={{ verticalAlign: 'middle' }} /> {w.eligible_count} eligible</span>
-                  <span><Check size={14} style={{ verticalAlign: 'middle' }} /> {w.claimed_count} claimed</span>
-                  <span><Coins size={14} style={{ verticalAlign: 'middle' }} /> ${fmt(w.total_granted)} paid</span>
-                  {w.is_open && <span className="muted"><Clock size={14} style={{ verticalAlign: 'middle' }} /> {Math.round(w.time_left_hours)}h left</span>}
-                </div>
-
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
-                  {w.is_active ? (
-                    <button className="btn ghost" style={{ color: 'var(--danger, #e44)' }} onClick={() => toggleWindow(w.id, false)}>
-                      <Lock size={14} /> Close window
-                    </button>
-                  ) : (
-                    <>
-                      <button className="btn primary" onClick={() => openWindow(w.id, [])}>
-                        <Users size={14} /> Open for all
-                      </button>
-                      <button className="btn primary" style={{ background: 'var(--bg)', color: 'var(--text)' }} onClick={() => openPicker(w)}>
-                        <Users size={14} /> Open for selected…
-                      </button>
-                    </>
-                  )}
-                </div>
+                <span className={`pill ${windows[0].is_active ? 'pill-active' : ''}`} style={{ background: windows[0].is_active ? 'var(--accent)' : 'var(--muted-bg)', color: windows[0].is_active ? '#fff' : 'var(--muted)', fontSize: '0.75rem' }}>
+                  {windows[0].is_active ? t('admin.win.open') : t('admin.win.closed')}
+                </span>
               </div>
-            ))}
-          </div>
+
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.85rem' }}>
+                <span><Users size={14} style={{ verticalAlign: 'middle' }} /> {t('admin.win.eligible', { count: windows[0].eligible_count })}</span>
+                <span><Check size={14} style={{ verticalAlign: 'middle' }} /> {t('admin.win.claimed', { count: windows[0].claimed_count })}</span>
+                <span><Coins size={14} style={{ verticalAlign: 'middle' }} /> {t('admin.win.paid', { amount: fmt(windows[0].total_granted) })}</span>
+                {windows[0].is_open && <span className="muted"><Clock size={14} style={{ verticalAlign: 'middle' }} /> {t('admin.win.left', { hours: Math.round(windows[0].time_left_hours) })}</span>}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+                {windows[0].is_active ? (
+                  <button className="btn ghost" style={{ color: 'var(--danger, #e44)' }} onClick={() => toggleWindow(windows[0].id, false)}>
+                    <Lock size={14} /> {t('admin.win.closeWindow')}
+                  </button>
+                ) : (
+                  <>
+                    <button className="btn primary" disabled={pickBusy} onClick={() => openFlow([])}>
+                      <Users size={14} /> {t('admin.win.openAll')}
+                    </button>
+                    <button className="btn primary" style={{ background: 'var(--bg)', color: 'var(--text)' }} onClick={() => openPicker(windows[0])}>
+                      <Users size={14} /> {t('admin.win.openSel')}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: '1.5rem', textAlign: 'center' }}>
+              <p className="muted" style={{ marginBottom: '1rem' }}>{t('admin.win.empty')}</p>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button className="btn primary" disabled={pickBusy} onClick={() => openFlow([])}>
+                  <Users size={14} /> {t('admin.win.openAll')}
+                </button>
+                <button className="btn primary" style={{ background: 'var(--bg)', color: 'var(--text)' }} onClick={() => openPicker(null)}>
+                  <Users size={14} /> {t('admin.win.openSel')}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -468,11 +475,11 @@ export default function AdminPage() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search by email, name, or phone…"
+              placeholder={t('admin.users.search')}
               style={{ paddingLeft: '2.2rem' }}
             />
           </div>
-          {users.length === 0 && <p className="muted">No users found.</p>}
+          {users.length === 0 && <p className="muted">{t('admin.users.empty')}</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {users.map((u) => (
               <div key={u.id} className="card" style={{ padding: '1rem' }}>
@@ -480,34 +487,37 @@ export default function AdminPage() {
                   <div>
                     <strong>{u.email}</strong>
                     <div className="muted small">
-                      Invested ${fmt(u.total_invested)} · Withdrawable ${fmt(u.total_withdrawable)}
-                      {u.is_banned && u.banned_until && <span style={{ color: '#c00', marginLeft: '0.6rem' }}>Banned until {new Date(u.banned_until).toLocaleString()}</span>}
+                      {t('admin.users.invested', { inv: fmt(u.total_invested), wd: fmt(u.total_withdrawable) })}
+                      {u.is_banned && u.banned_until && <span style={{ color: '#c00', marginLeft: '0.6rem' }}>{t('admin.users.banned', { date: new Date(u.banned_until).toLocaleString() })}</span>}
+                    </div>
+                    <div className="muted small">
+                      {t('admin.users.tree', { l1: u.level1_count ?? 0, l2: u.level2_count ?? 0, l3: u.level3_count ?? 0 })}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    <button className="btn ghost" title="Adjust balances" onClick={() => openBalance(u)}><Coins size={14} /> Balance</button>
+                    <button className="btn ghost" title={t('admin.bal.title', { email: u.email })} onClick={() => openBalance(u)}><Coins size={14} /> {t('admin.users.balance')}</button>
                     {u.is_banned ? (
-                      <button className="btn ghost" onClick={() => userAction(u.id, 'unban')}><Unlock size={14} /> Unban</button>
+                      <button className="btn ghost" onClick={() => userAction(u.id, 'unban')}><Unlock size={14} /> {t('admin.users.unban')}</button>
                     ) : (
-                      <button className="btn ghost" onClick={() => { setBanUser(u); setModal({ hours: '' }) }}><Ban size={14} /> Ban</button>
+                      <button className="btn ghost" onClick={() => { setBanUser(u); setModal({ hours: '' }) }}><Ban size={14} /> {t('admin.users.ban')}</button>
                     )}
                     {u.is_frozen ? (
-                      <button className="btn ghost" onClick={() => userAction(u.id, 'unfreeze')}><Unlock size={14} /> Unfreeze</button>
+                      <button className="btn ghost" onClick={() => userAction(u.id, 'unfreeze')}><Unlock size={14} /> {t('admin.users.unfreeze')}</button>
                     ) : (
-                      <button className="btn ghost" onClick={() => userAction(u.id, 'freeze')}><Lock size={14} /> Freeze</button>
+                      <button className="btn ghost" onClick={() => userAction(u.id, 'freeze')}><Lock size={14} /> {t('admin.users.freeze')}</button>
                     )}
                     {u.kyc_verified ? (
                       <span className="pill pill-active" style={{ fontSize: '0.75rem', background: 'var(--accent)', color: '#fff' }}>KYC ✓</span>
                     ) : (
                       <>
                         <button className="btn primary" style={{ fontSize: '0.8rem' }} onClick={() => userAction(u.id, 'kyc_approve')}>
-                          <Check size={14} /> KYC
+                          <Check size={14} /> {t('admin.users.kyc')}
                         </button>
-                        {u.kyc_rejected && <span className="pill" style={{ fontSize: '0.75rem', background: '#fee', color: '#c00' }}>Rejected</span>}
+                        {u.kyc_rejected && <span className="pill" style={{ fontSize: '0.75rem', background: '#fee', color: '#c00' }}>{t('admin.users.rejected')}</span>}
                       </>
                     )}
                     <button className="btn ghost" style={{ color: '#c00' }} onClick={() => { setDeleteUser(u); setModal({ confirm: '' }) }}>
-                      <Trash2 size={14} /> Delete
+                      <Trash2 size={14} /> {t('admin.users.delete')}
                     </button>
                   </div>
                 </div>
@@ -515,7 +525,7 @@ export default function AdminPage() {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.6rem' }}>
                     {u.wallets.map((w) => (
                       <span key={w.coin_id} className="pill" style={{ fontSize: '0.75rem' }}>
-                        {w.symbol} · inv {fmtCrypto(w.invested_balance)} / wd {fmtCrypto(w.withdrawable_balance)}
+                        {t('admin.users.wallet', { symbol: w.symbol, i: fmtCrypto(w.invested_balance), w: fmtCrypto(w.withdrawable_balance) })}
                       </span>
                     ))}
                   </div>
@@ -529,18 +539,18 @@ export default function AdminPage() {
       {tab === 'kyc' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <h3>KYC Review</h3>
+            <h3>{t('admin.kyc.head')}</h3>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <select value={kycStatus} onChange={(e) => setKycStatus(e.target.value)}>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-                <option value="all">All</option>
+                <option value="pending">{t('admin.kyc.pending')}</option>
+                <option value="approved">{t('admin.kyc.approved')}</option>
+                <option value="rejected">{t('admin.kyc.rejected')}</option>
+                <option value="all">{t('admin.kyc.all')}</option>
               </select>
-              <button className="btn ghost" onClick={loadKyc} disabled={kycBusy}><RefreshCw size={14} /> Refresh</button>
+              <button className="btn ghost" onClick={loadKyc} disabled={kycBusy}><RefreshCw size={14} /> {t('admin.kyc.refresh')}</button>
             </div>
           </div>
-          {kycList.length === 0 && <p className="muted">Nothing to review.</p>}
+          {kycList.length === 0 && <p className="muted">{t('admin.kyc.empty')}</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {kycList.map((s) => (
               <div key={s.id} className="card" style={{ padding: '1rem' }}>
@@ -550,22 +560,26 @@ export default function AdminPage() {
                     <div className="muted small">
                       {s.document_type} · {new Date(s.submitted_at).toLocaleString()} · <StatusBadge status={s.status} />
                     </div>
-                    {s.status === 'rejected' && s.reason && <div className="muted small" style={{ color: '#c00' }}>Reason: {s.reason}</div>}
+                    {s.status === 'rejected' && s.reason && <div className="muted small" style={{ color: '#c00' }}>{t('admin.kyc.reason', { reason: s.reason })}</div>}
                   </div>
                   {s.status === 'pending' && (
                     <div style={{ display: 'flex', gap: '0.4rem' }}>
-                      <button className="btn primary" onClick={() => reviewKyc(s.id, 'approve')}><Check size={14} /> Approve</button>
-                      <button className="btn ghost" style={{ color: '#c00' }} onClick={() => reviewKyc(s.id, 'reject')}><X size={14} /> Reject</button>
+                      <button className="btn primary" onClick={() => reviewKyc(s.id, 'approve')}><Check size={14} /> {t('admin.kyc.approve')}</button>
+                      <button className="btn ghost" style={{ color: '#c00' }} onClick={() => reviewKyc(s.id, 'reject')}><X size={14} /> {t('admin.kyc.reject')}</button>
                     </div>
                   )}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.6rem' }}>
-                  {[{ label: 'Front', url: s.document_front_url }, { label: 'Back', url: s.document_back_url }, { label: 'Selfie', url: s.selfie_url }]
+                  {[
+                    { label: t('admin.kyc.front'), field: 'front', url: s.document_front_url },
+                    { label: t('admin.kyc.back'), field: 'back', url: s.document_back_url },
+                    { label: t('admin.kyc.selfie'), field: 'selfie', url: s.selfie_url },
+                  ]
                     .filter((f) => f.url)
                     .map((f) => (
-                      <a key={f.label} href={f.url} target="_blank" rel="noreferrer" className="btn ghost" style={{ fontSize: '0.8rem' }}>
+                      <button key={f.field} type="button" className="btn ghost" style={{ fontSize: '0.8rem' }} onClick={() => previewKyc(s.id, f.field, f.label)}>
                         <Eye size={14} /> {f.label}
-                      </a>
+                      </button>
                     ))}
                 </div>
               </div>
@@ -577,61 +591,66 @@ export default function AdminPage() {
       {tab === 'payments' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div className="card form" style={{ padding: '1rem' }}>
-            <h3 style={{ marginBottom: '0.6rem' }}>Payment Mode</h3>
+            <h3 style={{ marginBottom: '0.6rem' }}>{t('admin.pay.mode')}</h3>
             <div className="row2">
               <label>
-                Mode
+                {t('admin.pay.modeField')}
                 <select value={pay.payment_mode} onChange={(e) => setPay((p) => ({ ...p, payment_mode: e.target.value }))}>
                   {MODES.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </label>
               <button className="btn primary" style={{ alignSelf: 'flex-end' }} disabled={streetBusy} onClick={saveMode}>
-                Save mode
+                {t('admin.pay.saveMode')}
               </button>
             </div>
             <p className="muted small" style={{ marginTop: '0.3rem' }}>
-              simulate = auto-credit on confirm · provider = live gateway (webhook) · manual = admin confirms each order.
+              {t('admin.pay.modeHint')}
             </p>
           </div>
 
           <div className="card form" style={{ padding: '1rem' }}>
-            <h3 style={{ marginBottom: '0.6rem' }}>Gateway Provider</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <h3 style={{ marginBottom: '0.6rem' }}>{t('admin.pay.provider')}</h3>
+            <p className="muted small" style={{ marginBottom: '0.6rem' }}>{t('admin.pay.payramHint')}</p>
+            <div className="row2">
               <label>
-                BTCPay instance URL <span className="muted small">(no /api/v1; blank keeps, typed blank clears)</span>
-                <input name="provider_url" value={providerForm.provider_url} onChange={pf} placeholder={pay.provider.url || 'https://testnet.btcpayserver.org'} />
+                {t('admin.pay.payramMode')}
+                <select name="payram_mode" value={payramForm.payram_mode || pay.payram.mode || 'test'} onChange={prf}>
+                  <option value="test">{t('admin.pay.payramTest')}</option>
+                  <option value="production">{t('admin.pay.payramProduction')}</option>
+                </select>
               </label>
-              <label>
-                API key <span className="muted small">(BTCPay key — "Authorization: token")</span>
-                <input name="provider_key" type="password" value={providerForm.provider_key} onChange={pf} placeholder={pay.provider.key_masked || 'Not set yet'} />
-              </label>
-              <label>
-                Store ID
-                <input name="store_id" value={providerForm.store_id} onChange={pf} placeholder={pay.provider.store_id || 'BTCPay store id'} />
-              </label>
-              <label>
-                Webhook token <span className="muted small">(BTCPay webhook secret used to verify BTCPay-Sig)</span>
-                <input name="webhook_token" type="password" value={providerForm.webhook_token} onChange={pf} placeholder={pay.provider.webhook_token_masked || 'Not set yet'} />
-              </label>
-              <label>
-                Callback URL <span className="muted small">(public URL webhooks are POSTed to — keep BTCPay's webhook in sync)</span>
-                <input name="callback_url" value={providerForm.callback_url} onChange={pf} placeholder={pay.provider.callback_url || 'https://<tunnel>/api/gateway/webhook/'} />
-              </label>
-              <label>
-                Success URL <span className="muted small">(frontend page users land on after paying)</span>
-                <input name="success_url" value={providerForm.success_url} onChange={pf} placeholder={pay.provider.success_url || 'http://localhost:5173/login'} />
-              </label>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button className="btn primary" disabled={streetBusy} onClick={saveProvider}>Save provider</button>
-                <button className="btn ghost" onClick={testConnection}><PlugZap size={14} /> Test connection</button>
-              </div>
-              {testResult && <p className={`small ${testResult.startsWith('OK') ? 'pos' : 'neg'}`}>{testResult}</p>}
             </div>
+            {['test', 'production'].map((env) => {
+              const cfg = env === 'production' ? pay.payram?.production : pay.payram?.test
+              const baseField = env === 'production' ? 'payram_base_url_production' : 'payram_base_url_test'
+              const keyField = env === 'production' ? 'payram_api_key_production' : 'payram_api_key_test'
+              return (
+                <fieldset key={env} className="card" style={{ marginTop: '0.6rem', padding: '0.6rem', border: '1px solid var(--line)' }}>
+                  <legend style={{ fontWeight: 600, padding: '0 0.4rem' }}>
+                    {env === 'production' ? t('admin.pay.payramProduction') : t('admin.pay.payramTest')}
+                  </legend>
+                  <label>
+                    {t('admin.pay.baseUrl')}
+                    <input name={baseField} value={payramForm[baseField]} onChange={prf} placeholder={cfg?.base_url || 'https://pay.example.com'} />
+                  </label>
+                  <label>
+                    {t('admin.pay.apiKey')} <span className="muted small">{t('admin.pay.apiKeyHint')}</span>
+                    <input name={keyField} type="password" value={payramForm[keyField]} onChange={prf} placeholder={cfg?.api_key_masked || t('admin.pay.notSet')} />
+                  </label>
+                </fieldset>
+              )
+            })}
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
+              <button className="btn primary" disabled={streetBusy} onClick={saveProvider}>{t('admin.pay.saveProvider')}</button>
+              <button className="btn ghost" onClick={testConnection}><PlugZap size={14} /> {t('admin.pay.testConnection')}</button>
+            </div>
+            <p className="muted small" style={{ marginTop: '0.5rem' }}>{t('admin.pay.webhookUrl')}: <code>/api/gateway/webhook/</code></p>
+            {testResult && <p className={`small ${testResult.startsWith('OK') ? 'pos' : 'neg'}`}>{testResult}</p>}
           </div>
 
           <div className="card form" style={{ padding: '1rem' }}>
-            <h3 style={{ marginBottom: '0.6rem' }}>Platform Deposit Wallets</h3>
-            {pay.platform_wallets.length === 0 && <p className="muted small">No platform wallets yet — add each coin address the site deposits to.</p>}
+            <h3 style={{ marginBottom: '0.6rem' }}>{t('admin.pay.wallets')}</h3>
+            {pay.platform_wallets.length === 0 && <p className="muted small">{t('admin.pay.walletsEmpty')}</p>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.8rem' }}>
               {pay.platform_wallets.map((w) => (
                 <div key={w.id} className="pill" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'space-between', padding: '0.35rem 0.6rem' }}>
@@ -645,40 +664,40 @@ export default function AdminPage() {
             </div>
             <div className="row2">
               <label>
-                Coin
+                {t('admin.pay.selectCoin')}
                 <select name="wallet_coin_id" value={walletForm.wallet_coin_id} onChange={wf}>
-                  <option value="">Select coin…</option>
+                  <option value="">{t('admin.pay.selectCoin')}</option>
                   {coins.map((c) => <option key={c.id} value={c.id}>{c.symbol} — {c.name}</option>)}
                 </select>
               </label>
               <label>
-                Address
+                {t('admin.pay.address')}
                 <input name="wallet_address" value={walletForm.wallet_address} onChange={wf} placeholder="T… / 0x… / bc1…" required />
               </label>
             </div>
             <label>
-              Label <span className="muted small">(optional)</span>
-              <input name="wallet_label" value={walletForm.wallet_label} onChange={wf} placeholder="Platform reserve" />
+              {t('admin.pay.label')} <span className="muted small">{t('admin.pay.optional')}</span>
+              <input name="wallet_label" value={walletForm.wallet_label} onChange={wf} placeholder={t('admin.pay.labelPh')} />
             </label>
             <button className="btn primary" disabled={streetBusy} onClick={addWallet} style={{ marginTop: '0.5rem' }}>
-              <Plus size={14} /> Add wallet
+              <Plus size={14} /> {t('admin.pay.addWallet')}
             </button>
           </div>
 
           <div className="card" style={{ padding: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <h3 style={{ margin: 0 }}>Payment Orders</h3>
+              <h3 style={{ margin: 0 }}>{t('admin.pay.orders')}</h3>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <select value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)}>
-                  <option value="all">All</option>
-                  <option value="pending">Pending</option>
-                  <option value="paid">Paid</option>
-                  <option value="expired">Expired</option>
+                  <option value="all">{t('admin.pay.orderAll')}</option>
+                  <option value="pending">{t('admin.pay.orderPending')}</option>
+                  <option value="paid">{t('admin.pay.orderPaid')}</option>
+                  <option value="expired">{t('admin.pay.orderExpired')}</option>
                 </select>
                 <button className="btn ghost" onClick={loadOrders} disabled={ordersBusy}><RefreshCw size={14} /></button>
               </div>
             </div>
-            {orders.length === 0 && <p className="muted small">No orders.</p>}
+            {orders.length === 0 && <p className="muted small">{t('admin.pay.noOrders')}</p>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {orders.map((o) => (
                 <div key={o.id} className="pill" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', justifyContent: 'space-between', flexWrap: 'wrap', padding: '0.35rem 0.6rem' }}>
@@ -689,7 +708,7 @@ export default function AdminPage() {
                   <StatusBadge status={o.investment_status} />
                   {o.status === 'pending' && (
                     <button className="btn primary" style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }} onClick={() => confirmOrder(o.id)}>
-                      <Check size={13} /> Mark paid & confirm
+                      <Check size={13} /> {t('admin.pay.markPaid')}
                     </button>
                   )}
                 </div>
@@ -699,58 +718,213 @@ export default function AdminPage() {
         </div>
       )}
 
+      {tab === 'notifications' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className="card form" style={{ padding: '1rem' }}>
+            <h3 style={{ marginBottom: '0.6rem' }}>{t('admin.ann.head')}</h3>
+            <label>
+              {t('admin.ann.titleEn')}
+              <input name="title" value={annForm.title} onChange={(e) => setAnnForm((p) => ({ ...p, title: e.target.value }))} placeholder={t('admin.ann.titlePh')} required />
+            </label>
+            <label>
+              {t('admin.ann.titleAr')}
+              <input name="title_ar" value={annForm.title_ar} onChange={(e) => setAnnForm((p) => ({ ...p, title_ar: e.target.value }))} placeholder="العنوان بالعربية" />
+            </label>
+            <label>
+              {t('admin.ann.msgEn')}
+              <textarea name="body" value={annForm.body} onChange={(e) => setAnnForm((p) => ({ ...p, body: e.target.value }))} placeholder={t('admin.ann.msgPh')} rows={3} />
+            </label>
+            <label>
+              {t('admin.ann.msgAr')}
+              <textarea name="body_ar" value={annForm.body_ar} onChange={(e) => setAnnForm((p) => ({ ...p, body_ar: e.target.value }))} placeholder="الرسالة بالعربية" rows={3} />
+            </label>
+            <label>
+              {t('admin.ann.link')} <span className="muted small">{t('admin.ann.linkHint')}</span>
+              <input name="link" value={annForm.link} onChange={(e) => setAnnForm((p) => ({ ...p, link: e.target.value }))} placeholder="/payouts" />
+            </label>
+            <div className="row2">
+              <label>
+                {t('admin.ann.audience')}
+                <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.3rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={`btn ${annForm.target === 'all' ? 'primary' : 'ghost'}`}
+                    onClick={() => setAnnForm((p) => ({ ...p, target: 'all' }))}
+                  >
+                    <Users size={14} /> {t('admin.ann.audAll')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${annForm.target === 'invested' ? 'primary' : 'ghost'}`}
+                    onClick={() => setAnnForm((p) => ({ ...p, target: 'invested' }))}
+                  >
+                    <UserCheck size={14} /> {t('admin.ann.audInvested')}
+                  </button>
+                </div>
+              </label>
+              <button className="btn primary" style={{ alignSelf: 'flex-end' }} disabled={annSending} onClick={submitAnnouncement}>
+                <Bell size={14} /> {annSending ? t('admin.ann.sending') : t('admin.ann.send')}
+              </button>
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ margin: 0 }}>{t('admin.ann.recent')}</h3>
+              <button className="btn ghost" onClick={loadAnnouncements} disabled={annBusy}><RefreshCw size={14} /></button>
+            </div>
+            {annList.length === 0 && <p className="muted small">{t('admin.ann.empty')}</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {annList.map((n) => (
+                <div key={n.id} className="pill" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', justifyContent: 'space-between', flexWrap: 'wrap', padding: '0.35rem 0.6rem' }}>
+                  <span style={{ fontWeight: 600 }}>{n.title}</span>
+                  <span className="muted small">{n.recipient}</span>
+                  <span className="muted small">{new Date(n.created_at).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'settings' && (
+        <div className="card form" style={{ padding: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <h3 style={{ margin: 0 }}>{t('admin.set.head')}</h3>
+            <button className="btn ghost" onClick={loadSettings} disabled={settingsBusy}><RefreshCw size={14} /></button>
+          </div>
+          <p className="muted small" style={{ marginBottom: '0.8rem' }}>
+            {t('admin.set.hint')}
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+            {COOLDOWN_GROUPS.map((g) => {
+              const items = plats._meta.filter((m) => m.key.startsWith(g.prefix))
+              if (items.length === 0) return null
+              return (
+                <fieldset key={g.prefix} className="cooldown-box">
+                  <legend>{t(`admin.set.${g.titleKey}`)}</legend>
+                  <div className="cooldown-grid">
+                    {items.map((m) => {
+                      const cur = plats[m.key]
+                      const draft = platDraft[m.key]
+                      const unit = m.key.split(`${g.prefix}_`).pop()
+                      const dirty = draft !== undefined && String(draft) !== String(cur)
+                      return (
+                        <label key={m.key}>
+                          {t(`admin.set.${COOLDOWN_UNITS[unit] || 'unitHours'}`)}
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={draft !== undefined ? draft : String(cur)}
+                            onChange={(e) => setPlatDraft((p) => ({ ...p, [m.key]: e.target.value }))}
+                            className={dirty ? 'input-highlight' : ''}
+                          />
+                        </label>
+                      )
+                    })}
+                  </div>
+                </fieldset>
+              )
+            })}
+            {plats._meta
+              .filter((m) => !COOLDOWN_GROUPS.some((g) => m.key.startsWith(g.prefix)))
+              .map((m) => {
+              const cur = plats[m.key]
+              const draft = platDraft[m.key]
+              const dirty = draft !== undefined && String(draft) !== String(cur)
+              return (
+                <label key={m.key}>
+                  {t(`admin.set.${m.key}`) || m.label} <span className="muted small">({m.key})</span>
+                  {m.key === 'default_lang' ? (
+                    <select
+                      value={draft !== undefined ? draft : String(cur)}
+                      onChange={(e) => setPlatDraft((p) => ({ ...p, [m.key]: e.target.value }))}
+                      className={dirty ? 'input-highlight' : ''}
+                    >
+                      <option value="en">EN — English</option>
+                      <option value="ar">عربي — العربية</option>
+                    </select>
+                  ) : m.type === 'bool' ? (
+                    <select
+                      value={draft !== undefined ? (draft ? '1' : '0') : (cur ? '1' : '0')}
+                      onChange={(e) => setPlatDraft((p) => ({ ...p, [m.key]: e.target.value === '1' }))}
+                      className={dirty ? 'input-highlight' : ''}
+                    >
+                      <option value="1">{t('admin.yes')}</option>
+                      <option value="0">{t('admin.no')}</option>
+                    </select>
+                  ) : (
+                    <input
+                      type={m.type === 'num' ? 'number' : 'text'}
+                      step={m.type === 'num' ? 'any' : undefined}
+                      value={draft !== undefined ? draft : String(cur)}
+                      onChange={(e) => setPlatDraft((p) => ({ ...p, [m.key]: e.target.value }))}
+                      className={dirty ? 'input-highlight' : ''}
+                    />
+                  )}
+                </label>
+              )
+            })}
+          </div>
+          <button className="btn primary lg block" disabled={settingsBusy || Object.keys(platDraft).length === 0} onClick={submitSettings} style={{ marginTop: '0.8rem' }}>
+            <Check size={14} /> {settingsBusy ? t('admin.set.saving') : t('admin.set.save')}
+          </button>
+        </div>
+      )}
+
       {balanceUser && (
-        <Modal title={`Adjust balance — ${balanceUser.email}`} onClose={() => { setBalanceUser(null); setModal({}) }}>
+        <Modal title={t('admin.bal.title', { email: balanceUser.email })} onClose={() => { setBalanceUser(null); setModal({}) }}>
           <form onSubmit={submitBalance}>
             <label>
-              Coin
+              {t('admin.bal.coin')}
               <select name="coin_id" value={modal.coin_id || ''} onChange={mf} required>
-                <option value="">Select coin…</option>
+                <option value="">{t('admin.pay.selectCoin')}</option>
                 {coins.map((c) => <option key={c.id} value={c.id}>{c.symbol} — {c.name}</option>)}
               </select>
             </label>
             <div className="row2" style={{ marginTop: '0.6rem' }}>
               <label>
-                Invested delta
+                {t('admin.bal.investedDelta')}
                 <input name="invested_delta" type="number" step="0.00000001" value={modal.invested_delta || ''} onChange={mf} placeholder="0" />
               </label>
               <label>
-                Withdrawable delta
+                {t('admin.bal.wdDelta')}
                 <input name="withdrawable_delta" type="number" step="0.00000001" value={modal.withdrawable_delta || ''} onChange={mf} placeholder="0" />
               </label>
             </div>
             <label style={{ marginTop: '0.6rem' }}>
-              Note <span className="muted small">(optional, shown in payout ledger)</span>
-              <input name="note" value={modal.note || ''} onChange={mf} placeholder="Support adjustment" />
+              {t('admin.bal.note')} <span className="muted small">{t('admin.bal.noteHint')}</span>
+              <input name="note" value={modal.note || ''} onChange={mf} placeholder={t('admin.bal.notePh')} />
             </label>
-            <p className="muted small" style={{ marginTop: '0.4rem' }}>Use negative values to correct over-credits. Withdrawable changes are recorded in the payout ledger.</p>
+            <p className="muted small" style={{ marginTop: '0.4rem' }}>{t('admin.bal.hint')}</p>
             <button type="submit" className="btn primary lg block" disabled={modalBusy} style={{ marginTop: '0.6rem' }}>
-              {modalBusy ? 'Saving…' : 'Save balance'}
+              {modalBusy ? t('admin.bal.saving') : t('admin.bal.save')}
             </button>
           </form>
         </Modal>
       )}
 
       {banUser && (
-        <Modal title={`Ban — ${banUser.email}`} onClose={() => setBanUser(null)}>
+        <Modal title={t('admin.ban.title', { email: banUser.email })} onClose={() => setBanUser(null)}>
           <form onSubmit={submitBan}>
             <label>
-              Duration (hours)
-              <input name="hours" type="number" min="1" value={modal.hours || ''} onChange={mf} placeholder="e.g. 24" autoFocus required />
+              {t('admin.ban.hours')}
+              <input name="hours" type="number" min="1" value={modal.hours || ''} onChange={mf} placeholder={t('admin.ban.hoursPh')} autoFocus required />
             </label>
-            <p className="muted small" style={{ marginTop: '0.4rem' }}>The user cannot log in until this period ends. They can be unbanned any time.</p>
+            <p className="muted small" style={{ marginTop: '0.4rem' }}>{t('admin.ban.hint')}</p>
             <button type="submit" className="btn primary lg block" disabled={modalBusy} style={{ marginTop: '0.6rem' }}>
-              {modalBusy ? 'Banning…' : 'Ban user'}
+              {modalBusy ? t('admin.ban.saving') : t('admin.ban.save')}
             </button>
           </form>
         </Modal>
       )}
 
       {deleteUser && (
-        <Modal title={`Delete — ${deleteUser.email}`} onClose={() => setDeleteUser(null)}>
+        <Modal title={t('admin.del.title', { email: deleteUser.email })} onClose={() => setDeleteUser(null)}>
           <form onSubmit={submitDelete}>
             <p style={{ marginBottom: '0.6rem' }}>
-              This permanently deletes the account, wallets, and investments. Type <strong>{deleteUser.email}</strong> to confirm.
+              {t('admin.del.warn', { email: deleteUser.email })}
             </p>
             <input
               value={modal.confirm || ''}
@@ -761,29 +935,29 @@ export default function AdminPage() {
               required
             />
             <button type="submit" className="btn lg block" disabled={modalBusy || modal.confirm !== deleteUser.email} style={{ marginTop: '0.6rem', background: '#c00', color: '#fff' }}>
-              {modalBusy ? 'Deleting…' : 'Delete account'}
+              {modalBusy ? t('admin.del.saving') : t('admin.del.save')}
             </button>
           </form>
         </Modal>
       )}
 
       {pickWindow && (
-        <Modal title={`Target users — ${pickWindow.title}`} onClose={() => setPickWindow(null)}>
+        <Modal title={t('admin.pick.title', { title: pickWindow?.title || t('admin.win.openSel') })} onClose={() => setPickWindow(null)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             <div style={{ position: 'relative' }}>
               <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
               <input
                 value={pickQ}
                 onChange={(e) => setPickQ(e.target.value)}
-                placeholder="Search users…"
+                placeholder={t('admin.pick.search')}
                 style={{ paddingLeft: '1.8rem' }}
               />
             </div>
             <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
               {pickUsers
                 .filter((u) => {
-                  const t = `${u.email} ${u.phone} ${u.full_name}`.toLowerCase()
-                  return t.includes(pickQ.toLowerCase())
+                  const txt = `${u.email} ${u.phone} ${u.full_name}`.toLowerCase()
+                  return txt.includes(pickQ.toLowerCase())
                 })
                 .map((u) => (
                   <label key={u.id} className="pick-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0', cursor: 'pointer' }}>
@@ -798,22 +972,37 @@ export default function AdminPage() {
                     </span>
                   </label>
                 ))}
-              {pickUsers.length === 0 && <p className="muted small">No users.</p>}
+              {pickUsers.length === 0 && <p className="muted small">{t('admin.pick.none')}</p>}
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button
                 className="btn primary"
                 disabled={pickBusy || pickSel.size === 0}
-                onClick={() => openWindow(pickWindow.id, [...pickSel])}
+                onClick={() => openFlow([...pickSel])}
               >
-                <Unlock size={14} /> Open for {pickSel.size} selected
+                <Unlock size={14} /> {t('admin.pick.openFor', { count: pickSel.size })}
               </button>
             </div>
             <p className="muted small" style={{ margin: 0 }}>
-              {pickSel.size === 0 ? 'No users selected — the window opens for nobody until you pick members.' : 'Only the checked users will see and claim this payout.'}
+              {pickSel.size === 0 ? t('admin.pick.hintNone') : t('admin.pick.hintSome')}
             </p>
           </div>
         </Modal>
+      )}
+
+      {previewImg && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+          onClick={closePreview}
+        >
+          <div style={{ background: 'var(--card-bg, #fff)', borderRadius: 10, padding: '1rem', maxWidth: '92vw', maxHeight: '88vh' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+              <strong>{previewLabel}</strong>
+              <button className="btn ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={closePreview}><X size={16} /></button>
+            </div>
+            <img src={previewImg} alt={previewLabel} style={{ maxWidth: '84vw', maxHeight: '74vh', borderRadius: 8, objectFit: 'contain', display: 'block' }} />
+          </div>
+        </div>
       )}
     </div>
   )

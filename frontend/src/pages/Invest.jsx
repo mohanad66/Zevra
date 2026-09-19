@@ -3,12 +3,14 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
+import { useI18n } from '../i18n'
 import { fmt } from '../components/Format'
 import { TrendingUp, ExternalLink, CheckCircle2, Clipboard, Loader2 } from 'lucide-react'
 
 export default function Invest() {
   const { apiError } = useAuth()
   const { toast } = useToast()
+  const { t } = useI18n()
   const [searchParams] = useSearchParams()
   const [coins, setCoins] = useState([])
   const [accounts, setAccounts] = useState([])
@@ -75,20 +77,20 @@ export default function Invest() {
   }
 
   function copy(text) {
-    navigator.clipboard.writeText(text).then(() => toast('Copied', 'success')).catch(() => {})
+    navigator.clipboard.writeText(text).then(() => toast(t('common.copied'), 'success')).catch(() => {})
   }
 
-  if (!coin) return <div className="page"><p className="muted">No coins available yet.</p></div>
+  if (!coin) return <div className="page"><p className="muted">{t('invest.noCoins')}</p></div>
 
   if (phase === 'confirmed') {
     return (
       <div className="page">
-        <div className="page-head"><div><h2>Invest</h2></div></div>
+        <div className="page-head"><div><h2>{t('invest.title')}</h2></div></div>
         <div className="card form" style={{ textAlign: 'center', padding: '2rem' }}>
           <CheckCircle2 size={48} color="var(--accent)" />
-          <h3 style={{ margin: '1rem 0 .5rem' }}>Investment confirmed</h3>
-          <p className="muted">Your balance has been updated. You can now see it in your dashboard.</p>
-          <Link to="/dashboard" className="btn primary" style={{ marginTop: '1rem' }}>Open dashboard</Link>
+          <h3 style={{ margin: '1rem 0 .5rem' }}>{t('invest.confirmedTitle')}</h3>
+          <p className="muted">{t('invest.confirmedBody')}</p>
+          <Link to="/dashboard" className="btn primary" style={{ marginTop: '1rem' }}>{t('invest.openDashboard')}</Link>
         </div>
       </div>
     )
@@ -98,8 +100,8 @@ export default function Invest() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h2>Invest</h2>
-          <p>Pay with your crypto wallet — the platform confirms your investment after payment is received.</p>
+          <h2>{t('invest.title')}</h2>
+          <p>{t('invest.subtitle')}</p>
         </div>
       </div>
 
@@ -120,20 +122,20 @@ export default function Invest() {
           </div>
 
           <div className="invest-summary">
-            <span><i>Selected coin</i><b>{coin.name} ({coin.symbol})</b></span>
-            <span><i>Price</i><b>${fmt(coin.current_price, 8)}</b></span>
-            <span><i>Minimum</i><b>{fmt(coin.min_invest)} {coin.symbol}</b></span>
+            <span><i>{t('invest.selectedCoin')}</i><b>{coin.name} ({coin.symbol})</b></span>
+            <span><i>{t('invest.price')}</i><b>${fmt(coin.current_price, 8)}</b></span>
+            <span><i>{t('invest.min')}</i><b>{fmt(coin.min_invest)} {coin.symbol}</b></span>
           </div>
 
           <label>
-            Amount to invest
+            {t('invest.toInvest')}
             <input
               type="number"
               min={parseFloat(coin.min_invest) || 0}
               step="any"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder={`Min ${coin.min_invest} ${coin.symbol}`}
+              placeholder={`${t('invest.min')} ${coin.min_invest} ${coin.symbol}`}
               required
             />
           </label>
@@ -146,17 +148,17 @@ export default function Invest() {
           </div>
 
           <label>
-            Pay from your crypto account
+            {t('invest.payFrom')}
             <input
               value={sourceAddress}
               onChange={(e) => setSourceAddress(e.target.value)}
-              placeholder="Your wallet address (TRC20 / ERC20 / …)"
+              placeholder="TRC20 / ERC20 / …"
               required
             />
           </label>
           {accounts.length > 0 && (
             <div className="saved-accounts">
-              <span className="muted small">Saved accounts</span>
+              <span className="muted small">{t('wd.savedAccounts')}</span>
               {accounts.map((a) => (
                 <button
                   type="button"
@@ -171,17 +173,17 @@ export default function Invest() {
           )}
 
           <p className="small muted">
-            You will be shown a deposit address or taken to a payment gateway to complete the transaction.
+            {t('invest.gatewayHint')}
           </p>
 
           <button className="btn primary lg block" disabled={busy}>
-            <TrendingUp size={18} /> {busy ? 'Creating order…' : `Pay ${amount || '0'} ${coin.symbol}`}
+            <TrendingUp size={18} /> {busy ? t('invest.processing') : t('invest.payAmount', { amount: amount || '0', symbol: coin.symbol })}
           </button>
         </form>
       ) : phase === 'checkout' ? (
         <div className="card form checkout-box">
-          <h3>Complete your payment</h3>
-          <p className="small muted">Send exactly the amount shown below to the deposit address. Your investment will be confirmed automatically once payment is received.</p>
+          <h3>{t('invest.completePayment')}</h3>
+          <p className="small muted">{t('invest.completeHint')}</p>
 
           <div className="checkout-amount">
             <span className="checkout-amt-value">{fmt(payment.pay_amount ?? payment.amount)}</span>
@@ -190,36 +192,36 @@ export default function Invest() {
 
           {payment.payment_mode === 'manual' ? (
             <div className="notice">
-              This is a manual deposit mode. Send crypto to the address below and wait for the admin to confirm your investment.
+              {t('invest.manualHint')}
             </div>
           ) : null}
 
           {payment.checkout_url ? (
             <a className="btn primary lg block" href={payment.checkout_url} target="_blank" rel="noreferrer" style={{ marginBottom: '1rem', textAlign: 'center' }}>
-              <ExternalLink size={18} /> Open payment gateway
+              <ExternalLink size={18} /> {t('invest.openGateway')}
             </a>
           ) : null}
 
           {payment.address ? (
             <label className="checkout-address-label">
-              Deposit address <span className="pill pill-light">{payment.chain}</span>
+              {t('invest.depositAddress')} <span className="pill pill-light">{payment.chain}</span>
               <div className="checkout-addr">
                 <code className="tx" style={{ fontSize: '13px', lineHeight: '2' }}>{payment.address}</code>
-                <button type="button" className="icon-btn" title="Copy address" onClick={() => copy(payment.address)}><Clipboard size={16} /></button>
+                <button type="button" className="icon-btn" title={t('common.copy')} onClick={() => copy(payment.address)}><Clipboard size={16} /></button>
               </div>
             </label>
           ) : null}
 
           {payment.payment_mode === 'manual' ? (
-            <p className="small muted">Awaiting admin confirmation.</p>
+            <p className="small muted">{t('invest.awaitingAdmin')}</p>
           ) : (
             <button className="btn success lg block" style={{ marginTop: '1rem' }} disabled={busy} onClick={confirmPayment}>
-              {busy ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />} {busy ? 'Confirming…' : 'I have completed the payment'}
+              {busy ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />} {busy ? t('invest.confirming') : t('invest.completedPayment')}
             </button>
           )}
 
           <button className="btn ghost" style={{ marginTop: '.5rem' }} onClick={() => { setPhase('form'); setPayment(null) }}>
-            Start a new order
+            {t('invest.newOrder')}
           </button>
         </div>
       ) : null}

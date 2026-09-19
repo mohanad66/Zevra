@@ -1,0 +1,100 @@
+# ---------------------------------------------------------------------------
+# Miyar Trading — full deployment compass
+#
+#   db      PostgreSQL 16            (app data)
+#   redis   Redis 7                  (cache / throttling re-entrancy)
+#   api     Django REST (gunicorn)   built from ./backend
+#   main    Vite build + nginx       built from ./frontend, serves the app,
+#                                    proxies /api -> api, /static+/media
+#
+# Optional PayRam gateway lives in docker-compose.payram.yml; deploy together:
+#
+#   cp .env.docker.example .env      # then fill in real values
+#   docker compose -f docker-compose.yml -f docker-compose.payram.yml up -d --build
+#
+# TLS: terminate HTTPS on a reverse proxy (Caddy/Cloudflare/LB) in front of
+# `main`; the app itself is plain HTTP inside the compose network.
+# ---------------------------------------------------------------------------
+
+name: miyartrading
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-miyartrading}
+      POSTGRES_USER: ${DB_USER:-miyartrading}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-miyartrading} -d ${DB_NAME:-miyartrading}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DJANGO_ENV: production
+      DJANGO_DEBUG: "0"
+      DB_ENGINE: postgres
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-miyartrading}
+      DB_USER: ${DB_USER:-miyartrading}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0
+      # same-origin deployment: browser talks to `main` -> nginx -> api, so an
+      # empty CORS list is fine; set CORS_ALLOWED_ORIGINS if you host the API
+      # on its own domain.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?DJANGO_ALLOWED_HOSTS must be set (comma separated hostnames)}
+    volumes:
+      - staticfiles:/app/staticfiles
+      - mediafiles:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/settings/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  main:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - staticfiles:/usr/share/nginx/html/static
+      - mediafiles:/usr/share/nginx/html/media
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  staticfiles:
+  mediafiles:

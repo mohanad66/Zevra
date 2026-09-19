@@ -10,12 +10,17 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons.svg'],
       manifest: {
-        name: 'Zevra — Invest & Trade',
-        short_name: 'Zevra',
-        description: 'Invest in stablecoins, track the market, invite friends and earn referral awards.',
+        name: 'Miyar Trading — Invest & Trade Stablecoins',
+        short_name: 'Miyar Trading',
+        description:
+          'Invest in stablecoins, track live market prices, invite friends and earn three-level referral rewards.',
+        lang: 'en',
+        dir: 'ltr',
+        categories: ['finance', 'business', 'productivity'],
         theme_color: '#0b0f1a',
         background_color: '#0b0f1a',
         display: 'standalone',
+        orientation: 'portrait',
         start_url: '/',
         icons: [
           {

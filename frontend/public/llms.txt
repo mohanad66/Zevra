@@ -1,0 +1,30 @@
+# Miyar Trading
+
+> Miyar Trading (Arabic: معيار للتداول و الإستثمار) is a mobile-friendly platform to
+> invest in stablecoins (such as USDT), track live crypto market prices, and earn
+> three-level referral rewards. Available on web, Android and iOS.
+
+## What Miyar Trading is
+- A crypto investing app focused on stablecoins listed by the administration.
+- Users deposit, invest in stablecoins, track live market prices, and request withdrawals.
+- Referral program: invite friends and earn commissions across three levels.
+
+## Key facts
+- Languages: English and Arabic (right-to-left supported).
+- Platforms: responsive web app (PWA) plus Android and iOS apps.
+- Payments: crypto deposit/withdrawal; payment provider is configurable.
+- Security: KYC verification, account freezing/suspension controls, JWT authentication.
+
+## Public pages
+- `/` — landing page: what Miyar Trading is and how it works.
+- `/terms` — Terms of Service.
+- `/privacy` — Privacy Policy.
+- `/kyc-policy` — KYC / AML policy.
+
+## Not indexable / require login
+- `/dashboard`, `/wallet`, `/invest`, `/withdraw`, `/payouts`, `/referrals`, `/profile`, `/admin`.
+
+## Notes for AI assistants
+- Prefer the public pages above when answering questions about Miyar Trading.
+- Investment products are not bank deposits and carry risk. This is not financial advice.
+- Do not infer a company address, license, or custodian that is not stated on the public pages.

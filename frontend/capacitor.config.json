@@ -1,0 +1,15 @@
+{
+  "appId": "io.miyartrading.app",
+  "appName": "Miyar Trading",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#0b0f1a"
+  },
+  "ios": {
+    "backgroundColor": "#0b0f1a",
+    "contentInset": "always"
+  }
+}

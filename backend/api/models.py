@@ -5,8 +5,8 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
-from django.db import models
-from django.db.models import Sum
+from django.db import models, transaction
+from django.db.models import F, Sum
 from django.utils import timezone
 
 VALID_NETWORKS = ["TRC20", "ERC20", "BEP20", "BEP2", "SOL", "TON"]
@@ -158,18 +158,34 @@ class Investment(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["user", "status"]),
+        ]
 
     def __str__(self):
         return f"{self.user.email} +{self.amount} {self.coin.symbol} [{self.status}]"
 
     def confirm(self):
-        if self.status != self.STATUS_PENDING:
+        """Confirm the investment exactly once, then credit the wallet.
+
+        The status flip is an atomic conditional UPDATE, so concurrent callers
+        (double-click, webhook retry, poller) can never credit twice. The wallet
+        balance uses an F() expression to avoid lost updates.
+        """
+        updated = type(self).objects.filter(
+            pk=self.pk, status=self.STATUS_PENDING
+        ).update(status=self.STATUS_CONFIRMED, updated_at=timezone.now())
+        if not updated:
             return
         self.status = self.STATUS_CONFIRMED
-        self.save(update_fields=["status", "updated_at"])
-        wallet = Wallet.ensure(self.user, self.coin)
-        wallet.invested_balance += self.amount
-        wallet.save(update_fields=["invested_balance", "updated_at"])
+        wallet, _ = Wallet.objects.get_or_create(
+            user_id=self.user_id, coin_id=self.coin_id
+        )
+        Wallet.objects.filter(pk=wallet.pk).update(
+            invested_balance=F("invested_balance") + self.amount,
+            updated_at=timezone.now(),
+        )
         from api.referrals import distribute_referral_awards
 
         distribute_referral_awards(self)
@@ -199,6 +215,7 @@ class Payout(models.Model):
     )
     note = models.CharField(max_length=500, blank=True, default="")
     tx_hash = models.CharField(max_length=150, blank=True, default="")
+    provider_id = models.CharField(max_length=150, blank=True, default="")
     created_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="issued_payouts"
     )
@@ -336,47 +353,62 @@ class PayoutWindow(models.Model):
         return rows
 
     def grant_to(self, user):
-        """Credit the claim to the user. Returns (ok, message_or_list, extra)."""
-        if not self.is_open:
-            return False, "This payout is not open right now.", []
-        if self.target_mode == self.TARGET_SPECIFIC and not self.target_users.filter(
-            pk=user.pk
-        ).exists():
-            return False, "You are not eligible for this payout.", []
-        if self.claimed_by.filter(pk=user.pk).exists():
-            return False, "You have already claimed this payout.", []
-        if user.is_frozen or not user.is_active:
-            return False, "Your account is not eligible right now.", []
+        """Credit the claim to the user. Returns (ok, message_or_list, extra).
 
-        grants = []
-        for w in user.wallets.filter(invested_balance__gt=0).select_for_update():
-            if self.coin_id and w.coin_id != self.coin_id:
-                continue
-            amount = (
-                w.invested_balance * self.percent / Decimal(100)
-            ).quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
-            if amount <= 0:
-                continue
-            Payout.objects.create(
-                user=user,
-                coin=w.coin,
-                amount=amount,
-                status=Payout.STATUS_COMPLETED,
-                destination_address="",
-                percent=self.percent,
-                is_bonus=True,
-                payout_window=self,
-                note=f"{self.title} payout ({self.percent}%)",
-                created_by=self.created_by,
+        Runs inside a transaction and row-locks the window so two concurrent
+        claims can't both grant. On SQLite ``select_for_update`` is a no-op, but
+        SQLite serialises writers; on PostgreSQL it is a true row lock.
+        """
+        with transaction.atomic():
+            if self.pk:
+                locked = type(self).objects.select_for_update().get(pk=self.pk)
+            else:
+                locked = self
+            if not locked.is_open:
+                return False, "This payout is not open right now.", []
+            if locked.target_mode == self.TARGET_SPECIFIC and not locked.target_users.filter(
+                pk=user.pk
+            ).exists():
+                return False, "You are not eligible for this payout.", []
+            if locked.claimed_by.filter(pk=user.pk).exists():
+                return False, "You have already claimed this payout.", []
+            if user.is_frozen or not user.is_active:
+                return False, "Your account is not eligible right now.", []
+
+            grants = []
+            wallets = list(
+                user.wallets.filter(invested_balance__gt=0).select_for_update()
             )
-            w.withdrawable_balance += amount
-            w.save(update_fields=["withdrawable_balance", "updated_at"])
-            grants.append({"coin_symbol": w.coin.symbol, "amount": str(amount)})
+            for w in wallets:
+                if locked.coin_id and w.coin_id != locked.coin_id:
+                    continue
+                amount = (
+                    w.invested_balance * locked.percent / Decimal(100)
+                ).quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
+                if amount <= 0:
+                    continue
+                Payout.objects.create(
+                    user=user,
+                    coin=w.coin,
+                    amount=amount,
+                    status=Payout.STATUS_COMPLETED,
+                    destination_address="",
+                    percent=locked.percent,
+                    is_bonus=True,
+                    payout_window=locked,
+                    note=f"{locked.title} payout ({locked.percent}%)",
+                    created_by=locked.created_by,
+                )
+                Wallet.objects.filter(pk=w.pk).update(
+                    withdrawable_balance=F("withdrawable_balance") + amount,
+                    updated_at=timezone.now(),
+                )
+                grants.append({"coin_symbol": w.coin.symbol, "amount": str(amount)})
 
-        if not grants:
-            return False, "You have no invested balance in this payout.", []
-        self.claimed_by.add(user)
-        return True, "Payout claimed and added to your withdrawable balance.", grants
+            if not grants:
+                return False, "You have no invested balance in this payout.", []
+            locked.claimed_by.add(user)
+            return True, "Payout claimed and added to your withdrawable balance.", grants
 
 
 class PaymentOrder(models.Model):
@@ -416,6 +448,7 @@ class PaymentOrder(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status"])]
 
     def mark_paid(self, tx_hash=""):
         self.status = self.STATUS_PAID
@@ -446,12 +479,17 @@ class Withdrawal(models.Model):
     fee = models.DecimalField(max_digits=30, decimal_places=8, default=0)
     status = models.CharField(max_length=20, choices=STATUS, default=STATUS_PENDING)
     tx_hash = models.CharField(max_length=150, blank=True, default="")
+    provider_id = models.CharField(max_length=150, blank=True, default="")
     reject_reason = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["user", "status"]),
+        ]
 
     def __str__(self):
         return f"{self.user.email} -{self.amount} {self.coin.symbol} [{self.status}]"
@@ -508,6 +546,8 @@ class KYCSubmission(models.Model):
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="kyc_submissions")
+    first_name = models.CharField(max_length=80, blank=True, default="")
+    last_name = models.CharField(max_length=80, blank=True, default="")
     document_type = models.CharField(max_length=40, default="ID")
     document_front = models.ImageField(upload_to="kyc/")
     document_back = models.ImageField(upload_to="kyc/", null=True, blank=True)
@@ -524,6 +564,103 @@ class KYCSubmission(models.Model):
         return f"{self.user.email} KYC [{self.status}]"
 
 
+class Notification(models.Model):
+    TYPE_ANNOUNCEMENT = "announcement"
+    TYPE_PAYOUT = "payout"
+    TYPE_INVITE = "invite"
+    TYPE_AWARD = "award"
+    TYPE_SYSTEM = "system"
+    TYPE_CHOICES = [
+        (TYPE_ANNOUNCEMENT, "Announcement"),
+        (TYPE_PAYOUT, "Payout"),
+        (TYPE_INVITE, "Invite"),
+        (TYPE_AWARD, "Award"),
+        (TYPE_SYSTEM, "System"),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+        null=True,
+        blank=True,
+        help_text="The recipient. Null = global announcement sent to everyone.",
+    )
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_SYSTEM)
+    title = models.CharField(max_length=200)
+    title_ar = models.CharField(max_length=200, blank=True, default="")
+    body = models.CharField(max_length=1000, blank=True, default="")
+    body_ar = models.CharField(max_length=1000, blank=True, default="")
+    link = models.CharField(max_length=300, blank=True, default="")
+    is_read = models.BooleanField(default=False)
+    read_by = models.ManyToManyField(
+        User, blank=True, related_name="read_notifications"
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name="created_notifications",
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "is_read"])]
+
+    def __str__(self):
+        return f"{self.type} -> {self.user or 'all'}: {self.title}"
+
+    @classmethod
+    def send(cls, user, ntype, title, title_ar="", body="", body_ar="", link="", created_by=None):
+        """Create a user-specific notification."""
+        if user is None:
+            return None
+        return cls.objects.create(
+            user=user,
+            type=ntype,
+            title=title,
+            title_ar=title_ar,
+            body=body,
+            body_ar=body_ar,
+            link=link,
+            created_by=created_by,
+        )
+
+    @classmethod
+    def broadcast(cls, ntype, title, title_ar="", body="", body_ar="", link="", user_ids=None, created_by=None):
+        """Deliver to designated users (or one global announcement when user_ids is None)."""
+        ids = list(set(user_ids or []))
+        if ids:
+            objs = [
+                cls(
+                    user_id=uid,
+                    type=ntype,
+                    title=title,
+                    title_ar=title_ar,
+                    body=body,
+                    body_ar=body_ar,
+                    link=link,
+                    created_by=created_by,
+                )
+                for uid in ids
+            ]
+            if objs:
+                cls.objects.bulk_create(objs)
+            return len(objs)
+        return cls.objects.create(
+            user=None,
+            type=ntype,
+            title=title,
+            title_ar=title_ar,
+            body=body,
+            body_ar=body_ar,
+            link=link,
+            created_by=created_by,
+        )
+
+
 class PlatformSettings(models.Model):
     key = models.CharField(max_length=40, unique=True)
     value = models.CharField(max_length=300, default="")
@@ -533,8 +670,17 @@ class PlatformSettings(models.Model):
     S_REFERRAL_L1 = "referral_level_1_percent"
     S_REFERRAL_L2 = "referral_level_2_percent"
     S_REFERRAL_L3 = "referral_level_3_percent"
+    S_WITHDRAW_COOLDOWN_MONTHS = "withdraw_cooldown_months"
+    S_WITHDRAW_COOLDOWN_WEEKS = "withdraw_cooldown_weeks"
+    S_WITHDRAW_COOLDOWN_DAYS = "withdraw_cooldown_days"
     S_WITHDRAW_COOLDOWN_HOURS = "withdraw_cooldown_hours"
+    S_PAYOUT_COOLDOWN_MONTHS = "payout_cooldown_months"
+    S_PAYOUT_COOLDOWN_WEEKS = "payout_cooldown_weeks"
+    S_PAYOUT_COOLDOWN_DAYS = "payout_cooldown_days"
     S_PAYOUT_COOLDOWN_HOURS = "payout_cooldown_hours"
+    S_MIN_INVESTMENT = "min_investment_amount"
+    S_PAYOUT_PERCENT = "payout_percent"
+    S_PAYOUT_DURATION_HOURS = "payout_duration_hours"
     S_KYC_REQUIRED_TO_INVEST = "kyc_required_to_invest"
     S_KYC_REQUIRED_TO_WITHDRAW = "kyc_required_to_withdraw"
     S_WITHDRAW_FEE_PERCENT = "withdraw_fee_percent"
@@ -543,10 +689,18 @@ class PlatformSettings(models.Model):
     S_PAYMENT_MODE = "payment_mode"
     S_PAYMENT_PROVIDER_URL = "payment_provider_url"
     S_PAYMENT_PROVIDER_KEY = "payment_provider_key"
+    S_PAYMENT_PROVIDER_SECRET = "payment_provider_secret"
     S_PAYMENT_WEBHOOK_TOKEN = "payment_webhook_token"
     S_PAYMENT_CALLBACK_URL = "payment_callback_url"
     S_PAYMENT_STORE_ID = "payment_store_id"
     S_PAYMENT_SUCCESS_URL = "payment_success_url"
+    # PayRam (self-hosted crypto gateway) — test and production environments
+    S_PAYRAM_MODE = "payram_mode"
+    S_PAYRAM_BASE_URL_TEST = "payram_base_url_test"
+    S_PAYRAM_API_KEY_TEST = "payram_api_key_test"
+    S_PAYRAM_BASE_URL_PROD = "payram_base_url_production"
+    S_PAYRAM_API_KEY_PROD = "payram_api_key_production"
+    S_DEFAULT_LANG = "default_lang"
 
     def __str__(self):
         return f"{self.key}={self.value}"
@@ -575,17 +729,35 @@ class PlatformSettings(models.Model):
         return str(val).lower() in {"1", "true", "yes", "on"}
 
     @classmethod
+    def cooldown_total_hours(cls, prefix, default_parts=(0, 0, 0, 0)):
+        """Compute the total cooldown hours from per-unit parts (months/weeks/days/hours)."""
+        m, w, d, h = (default_parts + (0, 0, 0, 0))[:4]
+        months = cls.get_decimal(f"{prefix}_months", m)
+        weeks = cls.get_decimal(f"{prefix}_weeks", w)
+        days = cls.get_decimal(f"{prefix}_days", d)
+        hours = cls.get_decimal(f"{prefix}_hours", h)
+        return months * 720 + weeks * 168 + days * 24 + hours
+
+    @classmethod
     def public_map(cls):
         return {
             "l1_percent": cls.get_decimal(cls.S_REFERRAL_L1, 1),
             "l2_percent": cls.get_decimal(cls.S_REFERRAL_L2, 0.5),
             "l3_percent": cls.get_decimal(cls.S_REFERRAL_L3, 0.25),
-            "withdraw_cooldown_hours": cls.get_decimal(cls.S_WITHDRAW_COOLDOWN_HOURS, 24),
-            "payout_cooldown_hours": cls.get_decimal(cls.S_PAYOUT_COOLDOWN_HOURS, 0),
+            "withdraw_cooldown_months": cls.get_decimal(cls.S_WITHDRAW_COOLDOWN_MONTHS, 0),
+            "withdraw_cooldown_weeks": cls.get_decimal(cls.S_WITHDRAW_COOLDOWN_WEEKS, 0),
+            "withdraw_cooldown_days": cls.get_decimal(cls.S_WITHDRAW_COOLDOWN_DAYS, 0),
+            "withdraw_cooldown_hours": cls.cooldown_total_hours("withdraw_cooldown", (0, 0, 0, 24)),
+            "payout_cooldown_months": cls.get_decimal(cls.S_PAYOUT_COOLDOWN_MONTHS, 0),
+            "payout_cooldown_weeks": cls.get_decimal(cls.S_PAYOUT_COOLDOWN_WEEKS, 0),
+            "payout_cooldown_days": cls.get_decimal(cls.S_PAYOUT_COOLDOWN_DAYS, 0),
+            "payout_cooldown_hours": cls.cooldown_total_hours("payout_cooldown", (0, 0, 0, 0)),
+            "min_investment": cls.get_decimal(cls.S_MIN_INVESTMENT, 0),
             "kyc_required_to_invest": cls.get_bool(cls.S_KYC_REQUIRED_TO_INVEST, False),
             "kyc_required_to_withdraw": cls.get_bool(cls.S_KYC_REQUIRED_TO_WITHDRAW, False),
             "withdraw_fee_percent": cls.get_decimal(cls.S_WITHDRAW_FEE_PERCENT, 1),
             "min_withdrawal": cls.get_decimal(cls.S_MIN_WITHDRAWAL, 10),
+            "default_lang": cls.get(cls.S_DEFAULT_LANG, "en"),
         }
 
 
@@ -598,6 +770,7 @@ class PriceSnapshot(models.Model):
 
     class Meta:
         ordering = ["-captured_at"]
+        indexes = [models.Index(fields=["coin", "captured_at"])]
 
     def __str__(self):
         return f"{self.coin.symbol} ${self.price} @ {self.captured_at:%Y-%m-%d %H:%M}"

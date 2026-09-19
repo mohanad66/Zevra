@@ -1,19 +1,24 @@
 import json
+import os
 from datetime import timedelta
 from decimal import Decimal
 
 import requests
+from django.core.cache import cache
 from django.db import models, transaction
+from django.http import FileResponse
 from django.utils import timezone
-from rest_framework import generics, permissions, response, status, views
+from rest_framework import generics, permissions, response, serializers, status, views
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from api.i18n import tr
 from api.models import (
     Coin,
     CryptoAccount,
     Investment,
     KYCSubmission,
+    Notification,
     PaymentOrder,
     Payout,
     PayoutWindow,
@@ -29,11 +34,9 @@ from api.serializers import (
     InvestmentSerializer,
     KYCSubmissionSerializer,
     PayoutSerializer,
-    PaymentOrderSerializer,
     RegisterSerializer,
     ReferralAwardSerializer,
     ReferralTreeSerializer,
-    SettingsSerializer,
     UserSerializer,
     WalletSerializer,
     WithdrawalInputSerializer,
@@ -46,16 +49,20 @@ from api.serializers import (
     UserPayoutWindowSerializer,
     AdminKycSubmissionSerializer,
 )
+from api.referrals import bulk_referral_counts, referral_tree_counts
 from api.services import (
     confirm_payment,
     create_payment_order,
     handle_gateway_webhook,
+    handle_payram_payment_webhook,
+    handle_payram_payout_webhook,
     verify_btcpay_signature,
     verify_nowpayments_signature,
+    verify_payram_signature,
     verify_webhook_signature,
     send_platform_to_user,
-    estimated_network_fee,
-    test_gateway_connection,
+    test_payram_connection,
+    reconcile_gateway,
 )
 
 # ---------------------------------------------------------------------------
@@ -67,6 +74,7 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_scope = "auth"
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -74,13 +82,14 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
         data = UserSerializer(user, context={"request": request}).data
         return response.Response(
-            {"user": data, "message": "Account created. You can now log in."},
+            {"user": data, "message": tr("Account created. You can now log in.", request)},
             status=status.HTTP_201_CREATED,
         )
 
 
 class LoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_scope = "auth"
 
     def post(self, request):
         identifier = (request.data.get("email") or request.data.get("identifier") or "").strip()
@@ -92,17 +101,17 @@ class LoginView(views.APIView):
                 user = User.objects.filter(phone__iexact=identifier).first()
         if user is None or not user.check_password(password) or not user.is_active:
             return response.Response(
-                {"detail": "Invalid email/phone or password."},
+                {"detail": tr("Invalid email/phone or password.", request)},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         if user.is_frozen:
             return response.Response(
-                {"detail": "Your account is frozen. Contact support."},
+                {"detail": tr("Your account is frozen. Contact support.", request)},
                 status=status.HTTP_403_FORBIDDEN,
             )
         if user.banned_until and user.banned_until > timezone.now():
             return response.Response(
-                {"detail": "Your account is temporarily suspended. Try again later."},
+                {"detail": tr("Your account is temporarily suspended. Try again later.", request)},
                 status=status.HTTP_403_FORBIDDEN,
             )
         user.last_login = timezone.now()
@@ -132,18 +141,7 @@ class ChangePasswordView(views.APIView):
         serializer.is_valid(raise_exception=True)
         request.user.set_password(serializer.validated_data["new_password"])
         request.user.save(update_fields=["password"])
-        return response.Response({"message": "Password changed successfully."})
-
-
-class LogoutView(views.APIView):
-    def post(self, request):
-        try:
-            refresh = request.data.get("refresh")
-            if refresh:
-                RefreshToken(refresh).blacklist()
-        except Exception:
-            pass
-        return response.Response({"message": "Logged out."})
+        return response.Response({"message": tr("Password changed successfully.", request)})
 
 
 class DeleteAccountView(views.APIView):
@@ -153,7 +151,7 @@ class DeleteAccountView(views.APIView):
         user.is_active = False
         user.is_frozen = True
         user.save(update_fields=["is_active", "is_frozen"])
-        return response.Response({"message": "Account deleted."})
+        return response.Response({"message": tr("Account deleted.", request)})
 
 
 # ---------------------------------------------------------------------------
@@ -226,18 +224,30 @@ def _refresh_market_prices():
         snapshots.exclude(id__in=keep).delete()
 
 
+def _maybe_refresh_market_prices():
+    """Refresh CoinGecko prices at most once per interval, across all workers.
+
+    The cache lock means only one request triggers the outbound HTTP call; every
+    other request (and the cached MarketView response) is served without it.
+    """
+    interval = int(os.environ.get("MARKET_REFRESH_SECONDS", "60"))
+    if cache.add("market:refresh_lock", 1, interval):
+        _refresh_market_prices()
+
+
 class MarketView(views.APIView):
     permission_classes = [permissions.AllowAny]
-
-    def _refresh_market_prices(self):
-        try:
-            _refresh_market_prices()
-        except Exception:
-            pass
+    throttle_classes = []  # read-only public market data
 
     def get(self, request):
-        self._refresh_market_prices()
-        coins = Coin.objects.filter(is_active=True)
+        lang = getattr(request, "LANGUAGE_CODE", "en") or "en"
+        cache_key = f"market:v1:{lang}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return response.Response(cached)
+
+        _maybe_refresh_market_prices()
+        coins = Coin.objects.filter(is_active=True).prefetch_related("price_snapshots")
         data = []
         for coin in coins:
             snap = coin.price_snapshots.first()
@@ -252,16 +262,19 @@ class MarketView(views.APIView):
                 }
             )
         settings = PlatformSettings.public_map()
-        return response.Response({"data": data, "settings": PublicSettings.serialize(settings)})
+        payload = {"data": data, "settings": PublicSettings.serialize(settings)}
+        cache.set(cache_key, payload, int(os.environ.get("MARKET_CACHE_SECONDS", "30")))
+        return response.Response(payload)
 
 
 class CoinListView(generics.ListAPIView):
     serializer_class = CoinSerializer
     permission_classes = [permissions.AllowAny]
     pagination_class = None
+    throttle_classes = []
 
     def get_queryset(self):
-        return Coin.objects.filter(is_active=True)
+        return Coin.objects.filter(is_active=True).prefetch_related("price_snapshots")
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +296,7 @@ class DashboardView(views.APIView):
                     "type": "invest",
                     "title": f"Invested {inv.amount} {inv.coin.symbol}",
                     "amount": str(inv.amount),
+                    "symbol": inv.coin.symbol,
                     "status": inv.status,
                     "created_at": inv.created_at.isoformat(),
                     "id": inv.id,
@@ -294,6 +308,7 @@ class DashboardView(views.APIView):
                     "type": "withdraw",
                     "title": f"Withdrew {wd.amount} {wd.coin.symbol}",
                     "amount": str(wd.amount),
+                    "symbol": wd.coin.symbol,
                     "status": wd.status,
                     "created_at": wd.created_at.isoformat(),
                     "id": wd.id,
@@ -305,6 +320,7 @@ class DashboardView(views.APIView):
                     "type": "payout",
                     "title": f"Payout {po.amount} {po.coin.symbol}",
                     "amount": str(po.amount),
+                    "symbol": po.coin.symbol,
                     "status": po.status,
                     "created_at": po.created_at.isoformat(),
                     "id": po.id,
@@ -316,6 +332,7 @@ class DashboardView(views.APIView):
                     "type": "award",
                     "title": f"Referral L{aw.level} +{aw.amount} {aw.coin.symbol}",
                     "amount": str(aw.amount),
+                    "symbol": aw.coin.symbol,
                     "status": aw.status,
                     "created_at": aw.created_at.isoformat(),
                     "id": aw.id,
@@ -379,7 +396,9 @@ class InvestView(views.APIView):
         source_address = serializer.validated_data.get("source_address", "")
 
         if user.is_frozen:
-            return response.Response({"detail": "Your account is frozen."}, status=403)
+            return response.Response(
+                {"detail": tr("Your account is frozen.", request)}, status=403
+            )
 
         with transaction.atomic():
             investment = Investment.objects.create(
@@ -396,6 +415,10 @@ class InvestView(views.APIView):
                 order_ref="",
             )
             payload = create_payment_order(investment)
+            if payload.get("status") == "failed":
+                raise serializers.ValidationError(
+                    payload.get("message") or "Payment gateway could not create the order."
+                )
             if payload.get("order_ref"):
                 order.order_ref = payload["order_ref"]
                 order.address = payload.get("address", "")
@@ -420,10 +443,14 @@ class InvestView(views.APIView):
                 "payment": payload,
                 "message": (
                     payload.get("message")
-                    or (
-                        "Investment order created. Complete the crypto payment to confirm it."
-                        if payload.get("status") != "manual"
-                        else "Investment submitted. Awaiting payment and admin confirmation."
+                    or tr(
+                        "Investment order created. Complete the crypto payment to confirm it.",
+                        request,
+                    )
+                    if payload.get("status") != "manual"
+                    else tr(
+                        "Investment submitted. Awaiting payment and admin confirmation.",
+                        request,
                     )
                 ),
             },
@@ -438,16 +465,18 @@ class InvestConfirmView(views.APIView):
         order_ref = (request.data.get("order_ref") or "").strip()
         if not order_ref:
             return response.Response(
-                {"detail": "order_ref is required."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": tr("order_ref is required.", request)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         order = PaymentOrder.objects.filter(order_ref=order_ref).first()
         if order is None:
             return response.Response(
-                {"detail": "Payment order not found."}, status=status.HTTP_404_NOT_FOUND
+                {"detail": tr("Payment order not found.", request)},
+                status=status.HTTP_404_NOT_FOUND,
             )
         if order.user_id != request.user.id:
             return response.Response(
-                {"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND
+                {"detail": tr("Not found.", request)}, status=status.HTTP_404_NOT_FOUND
             )
         ok, tx, message = confirm_payment(order_ref)
         if ok:
@@ -457,35 +486,47 @@ class InvestConfirmView(views.APIView):
                     "investment": InvestmentSerializer(order.investment).data,
                     "tx_hash": tx,
                     "message": (
-                        "Payment received. Your investment is confirmed and your balance is updated."
+                        tr(
+                            "Payment received. Your investment is confirmed and your balance is updated.",
+                            request,
+                        )
                         if message != "already_paid"
-                        else "This payment was already confirmed."
+                        else tr("This payment was already confirmed.", request)
                     ),
                 }
             )
-        return response.Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
+        return response.Response(
+            {"detail": tr(message, request)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class GatewayWebhookView(views.APIView):
     permission_classes = [permissions.AllowAny]
+    # Provider callbacks arrive from a small set of IPs; never rate-limit them.
+    throttle_classes = []
 
     def post(self, request):
-        """Signed callback from the crypto payment gateway.
+        """Signed callback from the crypto payment/payout gateway.
 
-        Three signature schemes are accepted:
+        Signature schemes accepted (verified over the raw request body):
+          * ``X-Payram-Signature`` – HMAC-SHA256 keyed by the PayRam project
+            API key (payment + payout webhooks shared on this endpoint).
           * ``X-Gateway-Signature`` – HMAC-SHA256 over the raw body
-            (PAYMENT_WEBHOOK_TOKEN).
+            (PAYMENT_WEBHOOK_TOKEN) (legacy).
           * ``BTCPay-Sig``          – BTCPay Server webhook: ``sha256=<hex>``
-            HMAC-SHA256 over the raw body with the webhook secret.
+            HMAC-SHA256 over the raw body with the webhook secret (legacy).
           * ``X-NowPayments-Sig``   – NOWPayments IPN: HMAC-SHA512 over the raw
             body (signed JSON string with keys sorted) using the IPN secret key.
         """
         raw = request.body
+        sig_payram = request.META.get("HTTP_X_PAYRAM_SIGNATURE", "")
         sig_gateway = request.META.get("HTTP_X_GATEWAY_SIGNATURE", "")
         sig_btcpay = request.META.get("HTTP_BTCPAY_SIG", "")
         sig_nowpayments = request.META.get("HTTP_X_NOWPAYMENTS_SIG", "")
         ok = (
-            bool(sig_gateway and verify_webhook_signature(raw, sig_gateway))
+            bool(sig_payram and verify_payram_signature(raw, sig_payram))
+            or bool(sig_gateway and verify_webhook_signature(raw, sig_gateway))
             or bool(sig_btcpay and verify_btcpay_signature(raw, sig_btcpay))
             or bool(sig_nowpayments and verify_nowpayments_signature(raw, sig_nowpayments))
         )
@@ -498,7 +539,14 @@ class GatewayWebhookView(views.APIView):
             return response.Response(
                 {"detail": "Invalid payload."}, status=status.HTTP_400_BAD_REQUEST
             )
-        if handle_gateway_webhook(data):
+        event = str(data.get("event_type") or "").lower()
+        if event.startswith("payout."):
+            handled = handle_payram_payout_webhook(data)
+        elif data.get("reference_id") or data.get("invoice_id") or data.get("paymentState"):
+            handled = handle_payram_payment_webhook(data)
+        else:
+            handled = handle_gateway_webhook(data)
+        if handled:
             return response.Response({"status": "ok"})
         return response.Response({"status": "ignored"}, status=status.HTTP_200_OK)
 
@@ -548,6 +596,12 @@ class AdminUsersListView(generics.ListAPIView):
                 | models.Q(phone__icontains=q)
             )
         return qs
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        user_ids = self.filter_queryset(self.get_queryset()).values_list("id", flat=True)
+        ctx["referral_counts"] = bulk_referral_counts(user_ids)
+        return ctx
 
 
 class AdminUserActionView(views.APIView):
@@ -738,6 +792,31 @@ class AdminKycReviewActionView(views.APIView):
         return response.Response({"detail": f"Unknown action '{action}'."}, 400)
 
 
+class AdminKycFileView(views.APIView):
+    permission_classes = [IsStaffPermission]
+    FIELD_MAP = {
+        "front": "document_front",
+        "back": "document_back",
+        "selfie": "selfie",
+    }
+
+    def get(self, request, pk, field):
+        """Return one KYC document image through the authed admin API."""
+        sub = KYCSubmission.objects.filter(pk=pk).first()
+        if sub is None:
+            return response.Response({"detail": "Submission not found."}, 404)
+        attr = self.FIELD_MAP.get((field or "").lower())
+        if attr is None:
+            return response.Response({"detail": "Invalid file field."}, 400)
+        img = getattr(sub, attr, None)
+        if not img:
+            return response.Response({"detail": "No file for this field."}, 404)
+        try:
+            return FileResponse(img.open("rb"))
+        except Exception:
+            return response.Response({"detail": "Could not open file."}, 500)
+
+
 class AdminPaymentSettingsView(views.APIView):
     permission_classes = [IsStaffPermission]
 
@@ -745,6 +824,7 @@ class AdminPaymentSettingsView(views.APIView):
         mode = PlatformSettings.get(PlatformSettings.S_PAYMENT_MODE, "simulate")
         url = PlatformSettings.get(PlatformSettings.S_PAYMENT_PROVIDER_URL, "")
         key = PlatformSettings.get(PlatformSettings.S_PAYMENT_PROVIDER_KEY, "")
+        secret = PlatformSettings.get(PlatformSettings.S_PAYMENT_PROVIDER_SECRET, "")
         token = PlatformSettings.get(
             PlatformSettings.S_PAYMENT_WEBHOOK_TOKEN, "dev-gateway-secret"
         )
@@ -756,12 +836,33 @@ class AdminPaymentSettingsView(views.APIView):
             return f"{v[-4:]}".rjust(len(v), "*")
 
         wallets = CryptoAccount.objects.filter(is_platform=True).select_related("coin", "user")
+
+        def env_state(env):
+            base_key = (
+                PlatformSettings.S_PAYRAM_BASE_URL_PROD
+                if env == "production"
+                else PlatformSettings.S_PAYRAM_BASE_URL_TEST
+            )
+            api_key_setting = (
+                PlatformSettings.S_PAYRAM_API_KEY_PROD
+                if env == "production"
+                else PlatformSettings.S_PAYRAM_API_KEY_TEST
+            )
+            api_key = PlatformSettings.get(api_key_setting, "")
+            return {
+                "base_url": PlatformSettings.get(base_key, ""),
+                "api_key_masked": mask(api_key) if api_key else "",
+                "api_key_set": bool(api_key),
+            }
+
         return response.Response({
             "payment_mode": mode,
             "provider": {
                 "url": url,
                 "key_masked": mask(key) if key else "",
                 "key_set": bool(key),
+                "secret_masked": mask(secret) if secret else "",
+                "secret_set": bool(secret),
                 "webhook_token_masked": mask(token) if token else "",
                 "webhook_token_set": bool(token),
                 "callback_url": PlatformSettings.get(
@@ -773,6 +874,12 @@ class AdminPaymentSettingsView(views.APIView):
                 "success_url": PlatformSettings.get(
                     PlatformSettings.S_PAYMENT_SUCCESS_URL, ""
                 ),
+            },
+            "payram": {
+                "mode": PlatformSettings.get(PlatformSettings.S_PAYRAM_MODE, "test")
+                or "test",
+                "test": env_state("test"),
+                "production": env_state("production"),
             },
             "platform_wallets": [
                 {
@@ -796,13 +903,26 @@ class AdminPaymentSettingsView(views.APIView):
             )
         elif mode:
             return response.Response({"detail": "Invalid payment mode."}, 400)
+        payram_mode = (request.data.get("payram_mode") or "").strip().lower()
+        if payram_mode in {"test", "production"}:
+            PlatformSettings.objects.update_or_create(
+                key=PlatformSettings.S_PAYRAM_MODE,
+                defaults={"value": payram_mode, "label": "PayRam environment: test | production"},
+            )
+        elif payram_mode:
+            return response.Response({"detail": "Invalid PayRam mode."}, 400)
         for field_name, key, label in (
-            ("provider_url", PlatformSettings.S_PAYMENT_PROVIDER_URL, "BTCPay instance base URL"),
-            ("provider_key", PlatformSettings.S_PAYMENT_PROVIDER_KEY, "BTCPay API key"),
-            ("store_id", PlatformSettings.S_PAYMENT_STORE_ID, "BTCPay store ID"),
+            ("provider_url", PlatformSettings.S_PAYMENT_PROVIDER_URL, "(legacy) provider API base URL"),
+            ("provider_key", PlatformSettings.S_PAYMENT_PROVIDER_KEY, "(legacy) provider API key"),
+            ("provider_secret", PlatformSettings.S_PAYMENT_PROVIDER_SECRET, "(legacy) provider API secret"),
+            ("store_id", PlatformSettings.S_PAYMENT_STORE_ID, "(legacy) merchant store ID"),
             ("webhook_token", PlatformSettings.S_PAYMENT_WEBHOOK_TOKEN, "Webhook HMAC/secret"),
-            ("callback_url", PlatformSettings.S_PAYMENT_CALLBACK_URL, "Webhook callback URL"),
+            ("callback_url", PlatformSettings.S_PAYMENT_CALLBACK_URL, "(legacy) Webhook callback URL"),
             ("success_url", PlatformSettings.S_PAYMENT_SUCCESS_URL, "Success redirect URL"),
+            ("payram_base_url_test", PlatformSettings.S_PAYRAM_BASE_URL_TEST, "PayRam test BASE_URL (Site URL)"),
+            ("payram_api_key_test", PlatformSettings.S_PAYRAM_API_KEY_TEST, "PayRam test project API key"),
+            ("payram_base_url_production", PlatformSettings.S_PAYRAM_BASE_URL_PROD, "PayRam production BASE_URL (Site URL)"),
+            ("payram_api_key_production", PlatformSettings.S_PAYRAM_API_KEY_PROD, "PayRam production project API key"),
         ):
             val = (request.data.get(field_name) or "").strip()
             if field_name in request.data and val:
@@ -843,7 +963,7 @@ class AdminProviderTestView(views.APIView):
     permission_classes = [IsStaffPermission]
 
     def post(self, request):
-        ok, message = test_gateway_connection()
+        ok, message = test_payram_connection()
         return response.Response({"ok": ok, "message": message})
 
 
@@ -877,6 +997,10 @@ class AdminOrdersView(generics.ListAPIView):
         }
 
     def list(self, request, *args, **kwargs):
+        try:
+            reconcile_gateway()
+        except Exception:  # noqa: BLE001
+            pass
         rows = [self.serialize(o) for o in self.get_queryset()]
         return response.Response(rows)
 
@@ -897,7 +1021,59 @@ class AdminOrderConfirmView(views.APIView):
         )
 
 
-class AdminWindowsView(generics.ListCreateAPIView):
+def _windows_config_for(request):
+    """Payout percent/duration the window opens with (admin overrides or platform settings)."""
+    data = request.data
+    percent = PlatformSettings.get_decimal(PlatformSettings.S_PAYOUT_PERCENT, 10)
+    if data.get("percent") not in (None, ""):
+        try:
+            percent = float(str(data.get("percent")))
+        except (TypeError, ValueError):
+            return None, None, "Invalid percent."
+    duration = max(
+        1, int(PlatformSettings.get_decimal(PlatformSettings.S_PAYOUT_DURATION_HOURS, 48))
+    )
+    if data.get("duration_hours") not in (None, ""):
+        try:
+            duration = max(1, int(data.get("duration_hours")))
+        except (TypeError, ValueError):
+            return None, None, "Invalid duration."
+    return percent, duration, None
+
+
+def _activate_window(window, request):
+    """Close any other open payout window and open this one, notifying users."""
+    PayoutWindow.objects.filter(is_active=True).exclude(pk=window.pk).update(
+        is_active=False
+    )
+    ends_at = window.activate()
+    scope = (
+        "all users"
+        if window.target_mode == PayoutWindow.TARGET_ALL
+        else f"{window.target_users.count()} selected users"
+    )
+    user_ids = None
+    if window.target_mode == PayoutWindow.TARGET_SPECIFIC:
+        user_ids = list(window.target_users.values_list("pk", flat=True))
+    Notification.broadcast(
+        Notification.TYPE_PAYOUT,
+        title=f"New daily payout window: {window.title}",
+        title_ar=f"نافذة دفعات يومية جديدة: {window.title}",
+        body=f"A {window.percent}% payout is now available for you to claim.",
+        body_ar=f"دفعة بنسبة {window.percent}% متاحة الآن لك للمطالبة بها.",
+        link="/payouts",
+        user_ids=user_ids,
+        created_by=request.user,
+    )
+    return response.Response(
+        {
+            "message": f"'{window.title}' opened ({scope}) until {ends_at:%d %b %Y %H:%M}.",
+            "ends_at": ends_at,
+        }
+    )
+
+
+class AdminWindowsView(generics.ListAPIView):
     permission_classes = [IsStaffPermission]
     serializer_class = PayoutWindowSerializer
     pagination_class = None
@@ -911,8 +1087,54 @@ class AdminWindowsView(generics.ListCreateAPIView):
             qs = qs.filter(is_active=False)
         return qs
 
-    def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+    def post(self, request):
+        """Create the payout window and (usually) open it right away.
+
+        Percent and duration default to the platform settings when not provided,
+        so opening a window is a single action (no separate "create" step).
+        """
+        data = request.data
+        percent, duration, err = _windows_config_for(request)
+        if err:
+            return response.Response({"detail": err}, 400)
+        title = str(data.get("title") or "Payout window").strip() or "Payout window"
+        window = PayoutWindow.objects.create(
+            title=title[:120],
+            percent=Decimal(str(percent)),
+            duration_hours=duration,
+            created_by=request.user,
+        )
+        if data.get("target_user_ids") is not None:
+            ids = data.get("target_user_ids")
+            if not isinstance(ids, list):
+                return response.Response(
+                    {"detail": "target_user_ids must be a list of user ids."}, 400
+                )
+            user_ids = []
+            for i in ids:
+                try:
+                    user_ids.append(int(i))
+                except (TypeError, ValueError):
+                    return response.Response(
+                        {"detail": "target_user_ids must be a list of user ids."}, 400
+                    )
+            valid = set(User.objects.filter(pk__in=user_ids).values_list("pk", flat=True))
+            window.target_users.set(valid)
+            window.target_mode = (
+                PayoutWindow.TARGET_SPECIFIC if valid else PayoutWindow.TARGET_ALL
+            )
+            window.save(update_fields=["target_mode"])
+        if bool(data.get("active")):
+            return _activate_window(window, request)
+        return response.Response(
+            {
+                "message": f"'{window.title}' created.",
+                "id": window.pk,
+                "window": PayoutWindowSerializer(
+                    window, context={"request": request}
+                ).data,
+            }
+        )
 
 
 class AdminWindowToggleView(views.APIView):
@@ -962,12 +1184,14 @@ class AdminWindowToggleView(views.APIView):
 
         activate = bool(data.get("active"))
         if activate:
-            # Optional percent + target on open.
-            if "percent" in data:
-                try:
-                    window.percent = Decimal(str(data.get("percent")))
-                except Exception:
-                    return response.Response({"detail": "Invalid percent."}, 400)
+            # On open the percent and duration are (re)applied from the platform
+            # settings unless explicitly overridden, so the admin can change the
+            # window percentage/time purely via the Settings tab.
+            percent, duration, err = _windows_config_for(request)
+            if err:
+                return response.Response({"detail": err}, 400)
+            window.percent = Decimal(str(percent))
+            window.duration_hours = duration
             target_changed = False
             if "target_user_ids" in data:
                 ids = data.get("target_user_ids")
@@ -976,22 +1200,8 @@ class AdminWindowToggleView(views.APIView):
                 if self._apply_target(window, ids) is None:
                     return response.Response({"detail": "target_user_ids must be a list of user ids."}, 400)
                 target_changed = True
-            if "percent" in data or target_changed:
-                window.save(update_fields=["percent", "target_mode"])
-            # Keep a single open payout at a time: close any others.
-            PayoutWindow.objects.filter(is_active=True).exclude(pk=window.pk).update(
-                is_active=False
-            )
-            ends_at = window.activate()
-            scope = "all users" if window.target_mode == PayoutWindow.TARGET_ALL else (
-                f"{window.target_users.count()} selected users"
-            )
-            return response.Response(
-                {
-                    "message": f"'{window.title}' opened ({scope}) until {ends_at:%d %b %Y %H:%M}.",
-                    "ends_at": ends_at,
-                }
-            )
+            window.save(update_fields=["percent", "duration_hours", "target_mode"])
+            return _activate_window(window, request)
         window.close()
         return response.Response({"message": f"'{window.title}' closed."})
 
@@ -1016,13 +1226,13 @@ class PayoutWindowClaimView(views.APIView):
         window_id = request.data.get("window_id")
         window = PayoutWindow.objects.filter(pk=window_id).first()
         if window is None:
-            return response.Response({"detail": "Payout not found."}, 404)
+            return response.Response({"detail": tr("Payout not found.", request)}, 404)
         with transaction.atomic():
             ok, message, grants = window.grant_to(request.user)
         if not ok:
-            return response.Response({"detail": message}, 400)
+            return response.Response({"detail": tr(message, request)}, 400)
         return response.Response(
-            {"message": message, "grants": grants, "window": window.title}
+            {"message": tr(message, request), "grants": grants, "window": window.title}
         )
 
 
@@ -1061,9 +1271,10 @@ class WithdrawalCreateView(views.APIView):
         return response.Response(
             {
                 "withdrawal": WithdrawalSerializer(withdrawal).data,
-                "message": (
+                "message": tr(
                     "Withdrawal request created and is pending approval. "
-                    "Funds are reserved and will be sent to your address once approved."
+                    "Funds are reserved and will be sent to your address once approved.",
+                    request,
                 ),
             },
             status=status.HTTP_201_CREATED,
@@ -1128,7 +1339,7 @@ class KYCSubmitView(views.APIView):
         return response.Response(
             {
                 "submission": KYCSubmissionSerializer(submission).data,
-                "message": "KYC documents submitted for review.",
+                "message": tr("KYC documents submitted for review.", request),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -1172,11 +1383,18 @@ class ReferralView(views.APIView):
             levels[level] = sum(
                 (a.amount for a in user.invited_users.filter(level=level)), Decimal("0")
             )
+        # Count referrals per level down the invite tree (awards only exist once
+        # an invitee invests, so count the users themselves to reflect signups).
+        counts = referral_tree_counts(user)
         awards = user.invited_users.select_related("coin", "user").order_by("-created_at")
         data = {
             "invite_code": user.invite_code,
             "referral_link": user.invite_code,
-            "direct_invites": user.referrals.count(),
+            "direct_invites": counts[1],
+            "level1_count": counts[1],
+            "level2_count": counts[2],
+            "level3_count": counts[3],
+            "total_referrals": counts[1] + counts[2] + counts[3],
             "level1_earned": str(levels[1]),
             "level2_earned": str(levels[2]),
             "level3_earned": str(levels[3]),
@@ -1208,6 +1426,7 @@ class PublicSettings:
             "kyc_required_to_withdraw": settings_map["kyc_required_to_withdraw"],
             "min_withdrawal": settings_map["min_withdrawal"],
             "withdraw_fee_percent": settings_map["withdraw_fee_percent"],
+            "default_lang": settings_map.get("default_lang", "en"),
         }
 
 
@@ -1224,7 +1443,197 @@ class PublicSettingsView(views.APIView):
 # ---------------------------------------------------------------------------
 
 
-def get_referral_levels_for(coin, amount):
-    from api.referrals import referral_percent
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
 
-    return {lvl: str(referral_percent(lvl)) for lvl in (1, 2, 3)}
+
+def _notification_data(request, msg):
+    """Serialize a notification for the requesting user, localizing text."""
+    lang = (request.META.get("HTTP_X_LANG") or "en").lower()
+    ar = lang.startswith("ar")
+    is_admin_view = msg.user_id is None
+    return {
+        "id": msg.id,
+        "type": msg.type,
+        "title": (msg.title_ar or msg.title) if ar else msg.title,
+        "body": (msg.body_ar or msg.body) if ar else msg.body,
+        "link": msg.link,
+        "is_read": msg.is_read if msg.user_id else msg.read_by.filter(pk=request.user.pk).exists(),
+        "created_at": msg.created_at,
+        "global": is_admin_view,
+    }
+
+
+def _global_notification_cutoff(user):
+    """Earliest global broadcast a user should see.
+
+    Global announcements live as a single row (``user`` is null) that everyone
+    shares. Without a lower bound, an account created today would receive every
+    payout-window/announcement ever sent. Cap it at the user's join time (and a
+    90-day window for older accounts).
+    """
+    ninety_days = timezone.now() - timedelta(days=90)
+    joined = getattr(user, "date_joined", None)
+    return max(ninety_days, joined) if joined else ninety_days
+
+
+class NotificationListView(views.APIView):
+    def get(self, request):
+        limit = int(request.query_params.get("limit") or 20)
+        mine = request.user.notifications.select_related("created_by")[:limit]
+        globs = Notification.objects.filter(
+            user__isnull=True, created_at__gte=_global_notification_cutoff(request.user)
+        )
+        items = list(mine)
+        items.extend(globs)
+        items.sort(key=lambda n: n.created_at, reverse=True)
+        items = items[:limit]
+        return response.Response([_notification_data(request, m) for m in items])
+
+
+class NotificationUnreadCountView(views.APIView):
+    def get(self, request):
+        mine = request.user.notifications.filter(is_read=False).count()
+        globs = (
+            Notification.objects.filter(
+                user__isnull=True,
+                created_at__gte=_global_notification_cutoff(request.user),
+            )
+            .exclude(read_by=request.user)
+            .count()
+        )
+        return response.Response({"count": mine + globs})
+
+
+class NotificationMarkReadView(views.APIView):
+    def post(self, request):
+        ids = request.data.get("ids") or []
+        user = request.user
+        if isinstance(ids, list) and ids:
+            user.notifications.filter(id__in=ids).update(is_read=True)
+            for n in Notification.objects.filter(user__isnull=True, id__in=ids):
+                n.read_by.add(user)
+        else:
+            user.notifications.filter(is_read=False).update(is_read=True)
+            globals_qs = Notification.objects.filter(
+                user__isnull=True,
+                created_at__gte=_global_notification_cutoff(user),
+            ).exclude(read_by=user)
+            for n in globals_qs:
+                n.read_by.add(user)
+        return response.Response({"message": tr("Marked as read.", request)})
+
+
+# ---------------------------------------------------------------------------
+# Admin: notifications / announcements
+# ---------------------------------------------------------------------------
+
+
+class AdminNotificationView(views.APIView):
+    permission_classes = [IsStaffPermission]
+
+    def get(self, request):
+        items = Notification.objects.select_related("created_by").order_by("-created_at")[:50]
+        data = []
+        for n in items:
+            row = _notification_data(request, n)
+            row["recipient"] = n.user.email if n.user_id else "all users"
+            data.append(row)
+        return response.Response(data)
+
+    def post(self, request):
+        title = (request.data.get("title") or "").strip()
+        if not title:
+            return response.Response({"detail": "title is required."}, 400)
+        target = (request.data.get("target") or "all").strip()
+        user_ids = None
+        if target == "invested":
+            user_ids = list(
+                Wallet.objects.filter(invested_balance__gt=0)
+                .values_list("user_id", flat=True)
+                .distinct()
+            )
+        Notification.broadcast(
+            Notification.TYPE_ANNOUNCEMENT,
+            title=title,
+            title_ar=(request.data.get("title_ar") or "").strip(),
+            body=(request.data.get("body") or "").strip(),
+            body_ar=(request.data.get("body_ar") or "").strip(),
+            link=(request.data.get("link") or "").strip(),
+            user_ids=user_ids,
+            created_by=request.user,
+        )
+        return response.Response({"message": "Announcement sent."})
+
+
+# ---------------------------------------------------------------------------
+# Admin: platform settings
+# ---------------------------------------------------------------------------
+
+PLATFORM_SETTINGS_META = [
+    ("referral_level_1_percent", "num", "Referral Level 1 (%)"),
+    ("referral_level_2_percent", "num", "Referral Level 2 (%)"),
+    ("referral_level_3_percent", "num", "Referral Level 3 (%)"),
+    ("min_investment_amount", "num", "Minimum investment"),
+    ("withdraw_cooldown_months", "num", "Withdraw cooldown (months)"),
+    ("withdraw_cooldown_weeks", "num", "Withdraw cooldown (weeks)"),
+    ("withdraw_cooldown_days", "num", "Withdraw cooldown (days)"),
+    ("withdraw_cooldown_hours", "num", "Withdraw cooldown (hours)"),
+    ("payout_cooldown_months", "num", "Payout cooldown (months)"),
+    ("payout_cooldown_weeks", "num", "Payout cooldown (weeks)"),
+    ("payout_cooldown_days", "num", "Payout cooldown (days)"),
+    ("payout_cooldown_hours", "num", "Payout cooldown (hours)"),
+    ("payout_percent", "num", "Payout percent used when opening a window (%)"),
+    ("payout_duration_hours", "num", "Payout window duration (hours)"),
+    ("kyc_required_to_invest", "bool", "Require KYC to invest"),
+    ("kyc_required_to_withdraw", "bool", "Require KYC to withdraw"),
+    ("withdraw_fee_percent", "num", "Withdraw fee (%)"),
+    ("min_withdrawal_amount", "num", "Minimum withdrawal"),
+    ("bonus_payout_percent", "num", "Bonus payout (%)"),
+    ("default_lang", "str", "Default language (en/ar)"),
+]
+
+
+class AdminPlatformSettingsView(views.APIView):
+    permission_classes = [IsStaffPermission]
+
+    def get(self, request):
+        data = {}
+        for key, ktype, label in PLATFORM_SETTINGS_META:
+            raw = PlatformSettings.get(key, "")
+            if ktype == "bool":
+                data[key] = PlatformSettings.get_bool(key, False)
+            elif ktype == "num":
+                data[key] = PlatformSettings.get_decimal(key, 0)
+            else:
+                data[key] = raw or "en"
+        data["_meta"] = [
+            {"key": key, "type": ktype, "label": label}
+            for key, ktype, label in PLATFORM_SETTINGS_META
+        ]
+        return response.Response(data)
+
+    def post(self, request):
+        key_map = {row[0] for row in PLATFORM_SETTINGS_META}
+        updated = []
+        for key, value in request.data.items():
+            if key not in key_map:
+                continue
+            ktype = next(t for k, t, _ in PLATFORM_SETTINGS_META if k == key)
+            if ktype == "bool":
+                val = "1" if str(value).lower() in {"1", "true", "yes", "on"} else "0"
+            elif ktype == "num":
+                try:
+                    val = str(Decimal(str(value)))
+                except Exception:
+                    return response.Response({"detail": f"Invalid numeric value for {key}."}, 400)
+            else:
+                val = str(value).strip()[:40] or "en"
+            PlatformSettings.objects.update_or_create(
+                key=key, defaults={"value": val}
+            )
+            updated.append(key)
+        if not updated:
+            return response.Response({"detail": "No known settings provided."}, 400)
+        return response.Response({"message": "Platform settings updated.", "keys": updated})

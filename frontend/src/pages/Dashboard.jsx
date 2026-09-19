@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
+import { useI18n } from '../i18n'
 import { fmtCrypto } from '../components/Format'
 import { TrendingUp, Wallet, Users, Trophy, ArrowDownToLine, Copy, Check, RefreshCw, Gift, Clock, Loader2 } from 'lucide-react'
 
@@ -13,6 +14,7 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false)
   const { user, apiError } = useAuth()
   const { toast } = useToast()
+  const { t } = useI18n()
   const navigate = useNavigate()
 
   async function load() {
@@ -57,14 +59,20 @@ export default function Dashboard() {
     })
   }
 
+  const actTitle = (a) => {
+    const key = `act.${a.type}`
+    if (a.symbol) return t(key, { amount: fmtCrypto(a.amount), symbol: a.symbol })
+    return a.title || t(key)
+  }
+
   return (
     <div className="page">
       <div className="page-head">
         <div>
-          <h2>Dashboard</h2>
-          <p>Welcome back, {data.user?.full_name || data.user?.email}</p>
+          <h2>{t('dash.title')}</h2>
+          <p>{t('dash.subtitle')} {data.user?.full_name || data.user?.email}</p>
         </div>
-        <button className="btn ghost" onClick={load}><RefreshCw size={16} /> Refresh</button>
+        <button className="btn ghost" onClick={load}><RefreshCw size={16} /> {t('common.refresh')}</button>
       </div>
 
       {windows.map((w) => (
@@ -75,8 +83,7 @@ export default function Dashboard() {
               <h3>{w.title}</h3>
               <p className="muted small" style={{ margin: 0 }}>
                 <Clock size={13} style={{ verticalAlign: 'middle' }} />
-                {Math.round(w.time_left_hours)}h left · you receive {w.percent}% of your invested balance
-                {w.coin_symbol ? ` in ${w.coin_symbol}` : ' (all coins)'}
+                {t('dash.windowInfo', { hours: Math.round(w.time_left_hours), percent: w.percent, coins: w.coin_symbol ? ` ${w.coin_symbol}` : t('dash.allCoins') })}
               </p>
             </div>
           </div>
@@ -84,17 +91,17 @@ export default function Dashboard() {
             {w.preview.map((p) => (
               <span key={p.coin_symbol}>
                 <b>+{fmtCrypto(p.amount)} {p.coin_symbol}</b>
-                <i>on {fmtCrypto(p.invested_balance)} invested</i>
+                <i>{t('dash.onInvested', { amount: fmtCrypto(p.invested_balance), symbol: p.coin_symbol })}</i>
               </span>
             ))}
           </div>
           {w.claimed ? (
             <span className="pill" style={{ background: 'var(--accent)', color: '#fff' }}>
-              <Check size={13} style={{ verticalAlign: 'middle' }} /> Claimed
+              <Check size={13} style={{ verticalAlign: 'middle' }} /> {t('dash.claimed')}
             </span>
           ) : (
             <button className="btn success lg" disabled={claiming} onClick={() => claimWindow(w.id)}>
-              {claiming ? <Loader2 size={16} className="spin" /> : <Gift size={16} />} {claiming ? 'Claiming…' : 'Claim my payout'}
+              {claiming ? <Loader2 size={16} className="spin" /> : <Gift size={16} />} {claiming ? t('dash.claiming') : t('dash.claimPayout')}
             </button>
           )}
         </div>
@@ -103,44 +110,44 @@ export default function Dashboard() {
       <div className="totals-grid">
         <div className="tcard">
           <div className="tcard-icon"><TrendingUp /></div>
-          <span className="tlabel">Invested balance</span>
+          <span className="tlabel">{t('dash.investedBalance')}</span>
           <span className="tvalue">$ {fmtCrypto(data.totals.total_invested)}</span>
-          <span className="tnote">Locked into your investments</span>
+          <span className="tnote">{t('dash.lockedIn')}</span>
         </div>
         <div className="tcard">
           <div className="tcard-icon"><Wallet /></div>
-          <span className="tlabel">Withdrawable balance</span>
+          <span className="tlabel">{t('dash.withdrawableBalance')}</span>
           <span className="tvalue">$ {fmtCrypto(data.totals.total_withdrawable)}</span>
-          <span className="tnote">Referral awards + payouts, ready to withdraw</span>
+          <span className="tnote">{t('dash.readyToWithdraw')}</span>
         </div>
         <div className="tcard">
           <div className="tcard-icon"><Users /></div>
-          <span className="tlabel">Referral earnings</span>
-          <span className="tvalue">3 levels</span>
-          <span className="tnote">Invite others and earn on each level</span>
+          <span className="tlabel">{t('dash.referralEarnings')}</span>
+          <span className="tvalue">3 {t('dash.levels')}</span>
+          <span className="tnote">{t('dash.inviteEarn')}</span>
         </div>
       </div>
 
       <div className="invite-banner">
         <div>
-          <strong>Your invite code</strong>
+          <strong>{t('dash.inviteCode')}</strong>
           <span className="code">{user?.invite_code}</span>
         </div>
         <button className="btn primary" onClick={copyInvite}>
-          {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'Copied!' : 'Copy'}
+          {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? t('common.copied') : t('common.copy')}
         </button>
         <p className="small muted">
-          Share your code — friends invest {data.settings?.referral_levels?.[0]?.percent}% to you on level 1.
+          {t('dash.shareHint', { percent: data.settings?.referral_levels?.[0]?.percent })}
         </p>
       </div>
 
       <div className="section">
         <div className="section-head">
-          <h3>Your coin wallets</h3>
-          <span className="muted small">Click a coin to invest — use 'View details' for balances</span>
+          <h3>{t('dash.holdings')}</h3>
+          <span className="muted small">{t('dash.clickToInvest')}</span>
         </div>
         <div className="wallet-grid">
-          {data.wallets.length === 0 && <p className="muted">No wallets yet. <Link to="/invest">Make your first investment →</Link></p>}
+          {data.wallets.length === 0 && <p className="muted">{t('dash.noWallets')} <Link to="/invest">{t('dash.firstInvestment')} →</Link></p>}
           {data.wallets.map((w) => (
             <div
               key={w.coin.id}
@@ -161,8 +168,8 @@ export default function Dashboard() {
                 <span className="coin-symbol">{w.coin.symbol}</span>
               </div>
               <div className="wallet-bals">
-                <span><i>Invested</i><b>{fmtCrypto(w.invested_balance)}</b></span>
-                <span><i>Withdrawable</i><b>{fmtCrypto(w.withdrawable_balance)}</b></span>
+                <span><i>{t('wd2.invested')}</i><b>{fmtCrypto(w.invested_balance)}</b></span>
+                <span><i>{t('wd2.withdrawable')}</i><b>{fmtCrypto(w.withdrawable_balance)}</b></span>
               </div>
               <span
                 className="wallet-link"
@@ -176,16 +183,16 @@ export default function Dashboard() {
                     navigate(`/wallet/${w.coin.id}`)
                   }
                 }}
-              >View details →</span>
+              >{t('dash.viewDetails')} →</span>
             </div>
           ))}
         </div>
       </div>
 
       <div className="section">
-        <h3>Recent activity</h3>
+        <h3>{t('dash.recentActivity')}</h3>
         <div className="activity">
-          {data.activity.length === 0 && <p className="muted">No activity yet.</p>}
+          {data.activity.length === 0 && <p className="muted">{t('dash.noActivity')}</p>}
           {data.activity.map((a) => (
             <div className="act-row" key={`${a.type}-${a.id}`}>
               <span className={`act-icon act-${a.type}`}>
@@ -195,7 +202,7 @@ export default function Dashboard() {
                 {a.type === 'award' && <Wallet size={16} />}
               </span>
               <div className="act-meta">
-                <strong>{a.title}</strong>
+                <strong>{actTitle(a)}</strong>
                 <span className="muted small">{new Date(a.created_at).toLocaleString()}</span>
               </div>
               <span className="pill pill-light">{a.status}</span>

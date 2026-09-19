@@ -9,8 +9,8 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const logoutEvt = () => setUser(null)
-    window.addEventListener('zevra:logout', logoutEvt)
-    return () => window.removeEventListener('zevra:logout', logoutEvt)
+    window.addEventListener('miyartrading:logout', logoutEvt)
+    return () => window.removeEventListener('miyartrading:logout', logoutEvt)
   }, [])
 
   useEffect(() => {

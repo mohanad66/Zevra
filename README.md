@@ -1,4 +1,4 @@
-# Zevra — Crypto Investment & Trading Platform
+# Miyar Trading — Crypto Investment & Trading Platform
 
 A full-stack crypto investment platform: users invest in admin-approved coins
 (stablecoins), the platform credits balances automatically, admins issue payouts
@@ -51,7 +51,7 @@ cd backend
 
 `seed` creates:
 
-- Admin: **admin@zevra.io / admin123** → **https://127.0.0.1:8001/admin/**
+- Admin: **admin@miyartrading.com / admin123** → **https://127.0.0.1:8001/admin/**
 - Default platform settings (referral %, cooldowns, fees, KYC toggles, payment mode)
 - Sample coins: USDT, USDC, DAI, TON, SOL, BTC, …
 
@@ -77,6 +77,43 @@ npm run dev        # http://localhost:5173  (proxies /api to Django)
 
 In production set the env overrides documented in `backend/backend/settings.py`
 (`DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, e-mail).
+
+## Deploy with Docker
+
+The repo ships a ready-to-run container stack:
+
+| Service  | Source                             | Role                                  |
+|----------|------------------------------------|---------------------------------------|
+| `db`     | `postgres:16-alpine`               | Application database                  |
+| `redis`  | `redis:7-alpine`                   | Cache / throttling                    |
+| `api`    | `backend/Dockerfile`               | Django REST + gunicorn (`:8000`)      |
+| `main`   | `frontend/Dockerfile`              | Vite build + nginx (`:80`, proxies `/api`) |
+| `payram` | `docker-compose.payram.yml`        | Self-hosted PayRam gateway (optional) |
+
+```bash
+# 1) configure (edit to real values, generate secrets)
+cp .env.docker.example .env
+
+# 2) build & start everything including PayRam (testnet by default)
+docker compose -f docker-compose.yml -f docker-compose.payram.yml up -d --build
+
+# 3) operations
+docker compose ps
+docker compose logs -f api main payram
+docker compose down
+```
+
+- First boot runs `migrate`, seeds platform settings + sample coins, collects
+  static files and — when `DJANGO_SUPERUSER_EMAIL/PASSWORD` are set — creates
+  the admin account. In production never rely on the dev `seed` defaults.
+- Static files & media are written by `api` into shared named volumes and served
+  directly by nginx (`/static/`, `/media/`).
+- Terminate TLS on a reverse proxy / Cloudflare in front of `main` and set
+  `DJANGO_ALLOWED_HOSTS` + `CORS_ALLOWED_ORIGINS` accordingly; the app runs on
+  HTTP inside the compose network.
+- After PayRam is up (`http://host:8081` for testnet), register webhook URL
+  `<your-app>/api/gateway/webhook/` and enter the BASE_URL + project API key in
+  **Admin → Payments** (or `PAYRAM_*` env vars), then hit **Test connection**.
 
 ## Features
 

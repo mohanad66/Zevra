@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { client } from '../api/client'
+import { client, apiError } from '../api/client'
 import { useToast } from '../components/Toast'
+import { useI18n } from '../i18n'
 import { fmt, percentageClass } from '../components/Format'
 import { RefreshCw } from 'lucide-react'
 
 export default function Market() {
   const [data, setData] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
-  const { toast, apiError } = useToast()
+  const { toast } = useToast()
+  const { t } = useI18n()
   const navigate = useNavigate()
 
   async function load(showToast = false) {
@@ -16,7 +18,7 @@ export default function Market() {
       const res = await client.get('/market/')
       setData(res.data)
       setLastUpdated(new Date())
-      if (showToast) toast('Market updated', 'success')
+      if (showToast) toast(t('market.updated'), 'success')
     } catch (err) {
       toast(apiError(err), 'error')
     }
@@ -24,8 +26,8 @@ export default function Market() {
 
   useEffect(() => {
     load()
-    const t = setInterval(() => load(), 60000)
-    return () => clearInterval(t)
+    const t2 = setInterval(() => load(), 60000)
+    return () => clearInterval(t2)
   }, [])
 
   if (!data) return null
@@ -34,13 +36,13 @@ export default function Market() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h2>Market monitor</h2>
+          <h2>{t('market.title')}</h2>
           <p className="muted">
-            {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Live prices'}
+            {lastUpdated ? `${t('market.updatedAt')} ${lastUpdated.toLocaleTimeString()}` : t('market.live')}
           </p>
         </div>
         <button className="btn ghost" onClick={() => load(true)}>
-          <RefreshCw size={16} /> Refresh
+          <RefreshCw size={16} /> {t('common.refresh')}
         </button>
       </div>
 
@@ -72,15 +74,15 @@ export default function Market() {
                   <span className="muted small">{m.coin.symbol} · {m.coin.chain}</span>
                 </div>
                 <span className={`pill ${m.coin.is_stable ? 'pill-light' : 'pill-accent'}`}>
-                  {m.coin.is_stable ? 'Stable' : 'Crypto'}
+                  {m.coin.is_stable ? t('market.stable') : t('market.crypto')}
                 </span>
               </div>
               <div className="market-price">
-                <span className="mp-label">Price (USD)</span>
+                <span className="mp-label">{t('market.priceUsd')}</span>
                 <span className="mp-value">${fmt(m.price, 8)}</span>
-                <span className={`mp-change ${cls}`}>24h: {sign(m.change_24h)} {fmt(m.change_24h, 2)}%</span>
+                <span className={`mp-change ${cls}`}>{t('market.h24')}: {sign(m.change_24h)} {fmt(m.change_24h, 2)}%</span>
               </div>
-              <span className="market-invest">Invest {m.coin.symbol} →</span>
+              <span className="market-invest">{t('market.invest', { symbol: m.coin.symbol })}</span>
             </div>
           )
         })}
