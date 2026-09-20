@@ -142,12 +142,15 @@ def _payram_post(endpoint, body, api_key, idempotency_key=None):
     headers = _payram_headers(api_key)
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
-    r = requests.post(
-        f"{_payram_url(_py_post_base(), endpoint)}",
-        data=json.dumps(body, separators=(",", ":")),
-        headers=headers,
-        timeout=30,
-    )
+    try:
+        r = requests.post(
+            f"{_payram_url(_py_post_base(), endpoint)}",
+            data=json.dumps(body, separators=(",", ":")),
+            headers=headers,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise ValueError(f"PayRam unreachable: {exc}") from exc
     try:
         payload = r.json()
     except ValueError:
@@ -159,11 +162,14 @@ def _payram_post(endpoint, body, api_key, idempotency_key=None):
 
 def _payram_get(endpoint, api_key):
     """GET from the PayRam API. Raises ValueError on non-2xx. Returns JSON."""
-    r = requests.get(
-        _payram_url(_py_get_base(), endpoint),
-        headers=_payram_headers(api_key),
-        timeout=30,
-    )
+    try:
+        r = requests.get(
+            _payram_url(_py_get_base(), endpoint),
+            headers=_payram_headers(api_key),
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise ValueError(f"PayRam unreachable: {exc}") from exc
     try:
         payload = r.json()
     except ValueError:
