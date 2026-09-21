@@ -931,8 +931,11 @@ class AdminPaymentSettingsView(views.APIView):
                 PlatformSettings.objects.update_or_create(
                     key=key, defaults={"value": val, "label": label}
                 )
-            elif field_name in request.data:
-                PlatformSettings.objects.filter(key=key).delete()
+            val = (request.data.get(field_name) or "").strip()
+            if val:
+                PlatformSettings.objects.update_or_create(
+                    key=key, defaults={"value": val, "label": label}
+                )
         coin_id = request.data.get("wallet_coin_id")
         address = (request.data.get("wallet_address") or "").strip()
         if coin_id and address:

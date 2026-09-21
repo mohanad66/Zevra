@@ -53,11 +53,14 @@ _PAYRAM_ENVS = ("test", "production")
 
 
 def _provider_setting(key, env_name, default=""):
-    """Read provider config from PlatformSettings first, then env."""
+    """Environment variables win; PlatformSettings is the fallback."""
+    val = os.environ.get(env_name, "").strip()
+    if val:
+        return val
     val = PlatformSettings.get(key, "")
     if val is not None and val != "":
         return val
-    return os.environ.get(env_name, default)
+    return default
 
 
 # ---------------------------------------------------------------------------
@@ -442,10 +445,6 @@ def _create_payram_payment(investment, order_ref):
         "amountInUSD": f"{amount_usd:.2f}",
         "invoiceID": order_ref,
     }
-    net = _PAYRAM_PAYMENT_NETWORKS.get((coin.chain or "").upper())
-    if net:
-        body["network"] = net
-        body["currency"] = str(coin.symbol).upper()
     try:
         result = _payram_post("/payment", body, key)
     except ValueError as exc:
