@@ -10,7 +10,10 @@ import {
   Pencil,
 } from 'lucide-react'
 
-const MODES = ['simulate', 'provider', 'manual']
+const PAY_MODES = [
+  { value: 'provider', labelKey: 'admin.pay.auto' },
+  { value: 'manual', labelKey: 'admin.pay.manual' },
+]
 
 const COOLDOWN_UNITS = {
   months: 'unitMonths',
@@ -682,7 +685,7 @@ export default function AdminPage() {
               <label>
                 {t('admin.pay.modeField')}
                 <select value={pay.payment_mode} onChange={(e) => setPay((p) => ({ ...p, payment_mode: e.target.value }))}>
-                  {MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {PAY_MODES.map((m) => <option key={m.value} value={m.value}>{t(m.labelKey)}</option>)}
                 </select>
               </label>
               <button className="btn primary" style={{ alignSelf: 'flex-end' }} disabled={streetBusy} onClick={saveMode}>
