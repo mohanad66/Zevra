@@ -45,7 +45,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def validate_phone(self, value):
-        value = (value or "").strip() or None
+        value = (value or "").strip()
         if value and User.objects.filter(phone__iexact=value).exists():
             raise serializers.ValidationError(
                 tr("This phone number is already in use.", self.context.get("request"))
