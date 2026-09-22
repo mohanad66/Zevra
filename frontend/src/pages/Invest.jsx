@@ -7,29 +7,37 @@ import { useI18n } from '../i18n'
 import { fmt } from '../components/Format'
 import { TrendingUp, ExternalLink, CheckCircle2, Clipboard, Loader2 } from 'lucide-react'
 
+// Networks the customer can pay on. `enabled` must match what your PayRam
+// server really supports (and _INVEST_NETWORKS in backend/api/services.py).
+// To turn one on later: set enabled: true here and uncomment it in services.py.
+const NETWORKS = [
+  { id: 'TRC20', label: 'TRC20', hint: 'Tron', enabled: true },
+  { id: 'POL', label: 'POL', hint: 'Polygon', enabled: true },
+  { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: false },
+  // PayRam can't watch Solana yet, so SOL is paid to your own platform wallet and
+  // confirmed by an admin. It is only offered for a coin whose chain is SOL.
+  { id: 'SOL', label: 'SOL', hint: 'Solana', enabled: true, manual: true },
+]
+
 export default function Invest() {
   const { apiError } = useAuth()
   const { toast } = useToast()
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [searchParams] = useSearchParams()
   const [coins, setCoins] = useState([])
-  const [accounts, setAccounts] = useState([])
   const [coinId, setCoinId] = useState(null)
   const [amount, setAmount] = useState('')
-  const [sourceAddress, setSourceAddress] = useState('')
+  const [network, setNetwork] = useState(NETWORKS.find((n) => n.enabled).id)
   const [phase, setPhase] = useState('form')
   const [payment, setPayment] = useState(null)
   const [busy, setBusy] = useState(false)
   const coinParam = (searchParams.get('coin') || '').trim()
+  const ar = lang === 'ar'
 
   useEffect(() => {
     client.get('/coins/').then((res) => {
       setCoins(res.data)
       if (res.data.length) setCoinId(res.data[0].id)
-    }).catch(() => {})
-    client.get('/accounts/').then((res) => {
-      setAccounts(res.data ?? [])
-      if (res.data?.length) setSourceAddress(res.data[0].address)
     }).catch(() => {})
   }, [])
 
@@ -47,14 +55,31 @@ export default function Invest() {
 
   const coin = useMemo(() => coins.find((c) => c.id === coinId), [coins, coinId])
 
+  // The coin decides which networks make sense: a SOL coin is paid on SOL only,
+  // every other coin is paid on the PayRam networks.
+  const coinChain = String(coin?.chain || '').toUpperCase()
+  const manualCoin = NETWORKS.some((n) => n.manual && n.id === coinChain)
+  const isAllowed = (n) => n.enabled && (n.manual ? coinChain === n.id : !manualCoin)
+
+  useEffect(() => {
+    if (!coin) return
+    const current = NETWORKS.find((n) => n.id === network)
+    if (current && isAllowed(current)) return
+    const next = NETWORKS.find(isAllowed)
+    if (next) setNetwork(next.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coinId, coins])
+
   async function createOrder(e) {
     e.preventDefault()
     setBusy(true)
     try {
+      // The backend reads the chosen network from `source_address`
+      // (existing field, so no database migration is needed).
       const res = await client.post('/invest/', {
         coin_id: coinId,
         amount: parseFloat(amount),
-        source_address: sourceAddress,
+        source_address: network,
       })
       setPayment(res.data.payment)
       setPhase('checkout')
@@ -116,7 +141,7 @@ export default function Invest() {
                 onClick={() => setCoinId(c.id)}
               >
                 {c.icon_url ? <img src={c.icon_url} alt="" /> : <span className="coin-fallback">{c.symbol[0]}</span>}
-                <span><b>{c.name}</b><small>{c.symbol} · {c.chain}</small></span>
+                <span><b>{c.name}</b><small>{c.symbol}</small></span>
               </button>
             ))}
           </div>
@@ -125,6 +150,7 @@ export default function Invest() {
             <span><i>{t('invest.selectedCoin')}</i><b>{coin.name} ({coin.symbol})</b></span>
             <span><i>{t('invest.price')}</i><b>${fmt(coin.current_price, 8)}</b></span>
             <span><i>{t('invest.min')}</i><b>{fmt(coin.min_invest)} {coin.symbol}</b></span>
+            <span><i>{ar ? 'شبكة الدفع' : 'Network'}</i><b>{network}</b></span>
           </div>
 
           <label>
@@ -147,30 +173,32 @@ export default function Invest() {
             ))}
           </div>
 
-          <label>
-            {t('invest.payFrom')}
-            <input
-              value={sourceAddress}
-              onChange={(e) => setSourceAddress(e.target.value)}
-              placeholder="TRC20 / ERC20 / …"
-              required
-            />
-          </label>
-          {accounts.length > 0 && (
-            <div className="saved-accounts">
-              <span className="muted small">{t('wd.savedAccounts')}</span>
-              {accounts.map((a) => (
+          <div className="saved-accounts" role="radiogroup" aria-label={ar ? 'شبكة الدفع' : 'Payment network'}>
+            <span className="muted small">{ar ? 'ادفع عبر شبكة' : 'Pay on network'}</span>
+            {NETWORKS.map((n) => {
+              const ok = isAllowed(n)
+              const why = !n.enabled
+                ? (ar ? 'قريباً' : 'coming soon')
+                : n.manual
+                  ? (ar ? 'اختر عملة SOL أولاً' : 'choose the SOL coin first')
+                  : (ar ? 'غير متاحة لهذه العملة' : 'not available for this coin')
+              return (
                 <button
                   type="button"
-                  key={a.id}
-                  className={`chip ${sourceAddress === a.address ? 'chip-active' : ''}`}
-                  onClick={() => setSourceAddress(a.address)}
+                  key={n.id}
+                  role="radio"
+                  aria-checked={network === n.id}
+                  disabled={!ok}
+                  title={ok ? n.hint : `${n.hint} — ${why}`}
+                  className={`chip ${network === n.id ? 'chip-active' : ''}`}
+                  style={ok ? undefined : { opacity: 0.45, cursor: 'not-allowed' }}
+                  onClick={() => ok && setNetwork(n.id)}
                 >
-                  {a.coin_symbol} · {a.address.slice(0, 10)}…
+                  {n.label} · {n.hint}{n.enabled ? '' : ` (${ar ? 'قريباً' : 'soon'})`}
                 </button>
-              ))}
-            </div>
-          )}
+              )
+            })}
+          </div>
 
           <p className="small muted">
             {t('invest.gatewayHint')}
@@ -188,6 +216,7 @@ export default function Invest() {
           <div className="checkout-amount">
             <span className="checkout-amt-value">{fmt(payment.pay_amount ?? payment.amount)}</span>
             <span className="checkout-amt-symbol">{payment.pay_currency || payment.coin_symbol}</span>
+            <span className="pill pill-light" style={{ marginInlineStart: '.5rem' }}>{payment.chain || network}</span>
           </div>
 
           {payment.payment_mode === 'manual' ? (
