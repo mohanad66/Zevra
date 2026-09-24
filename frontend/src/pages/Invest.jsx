@@ -13,10 +13,8 @@ import { TrendingUp, ExternalLink, CheckCircle2, Clipboard, Loader2 } from 'luci
 const NETWORKS = [
   { id: 'TRC20', label: 'TRC20', hint: 'Tron', enabled: true },
   { id: 'POL', label: 'POL', hint: 'Polygon', enabled: true },
-  { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: false },
-  // PayRam can't watch Solana yet, so SOL is paid to your own platform wallet and
-  // confirmed by an admin. It is only offered for a coin whose chain is SOL.
-  { id: 'SOL', label: 'SOL', hint: 'Solana', enabled: true, manual: true },
+  { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: true },
+  { id: 'SOL', label: 'SOL', hint: 'Solana', enabled: true },
 ]
 
 export default function Invest() {
@@ -55,20 +53,7 @@ export default function Invest() {
 
   const coin = useMemo(() => coins.find((c) => c.id === coinId), [coins, coinId])
 
-  // The coin decides which networks make sense: a SOL coin is paid on SOL only,
-  // every other coin is paid on the PayRam networks.
-  const coinChain = String(coin?.chain || '').toUpperCase()
-  const manualCoin = NETWORKS.some((n) => n.manual && n.id === coinChain)
-  const isAllowed = (n) => n.enabled && (n.manual ? coinChain === n.id : !manualCoin)
-
-  useEffect(() => {
-    if (!coin) return
-    const current = NETWORKS.find((n) => n.id === network)
-    if (current && isAllowed(current)) return
-    const next = NETWORKS.find(isAllowed)
-    if (next) setNetwork(next.id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coinId, coins])
+  const isAllowed = (n) => n.enabled
 
   async function createOrder(e) {
     e.preventDefault()
@@ -177,11 +162,7 @@ export default function Invest() {
             <span className="muted small">{ar ? 'ادفع عبر شبكة' : 'Pay on network'}</span>
             {NETWORKS.map((n) => {
               const ok = isAllowed(n)
-              const why = !n.enabled
-                ? (ar ? 'قريباً' : 'coming soon')
-                : n.manual
-                  ? (ar ? 'اختر عملة SOL أولاً' : 'choose the SOL coin first')
-                  : (ar ? 'غير متاحة لهذه العملة' : 'not available for this coin')
+              const why = ar ? 'قريباً' : 'coming soon'
               return (
                 <button
                   type="button"
@@ -225,10 +206,16 @@ export default function Invest() {
             </div>
           ) : null}
 
-          {payment.checkout_url ? (
-            <a className="btn primary lg block" href={payment.checkout_url} target="_blank" rel="noreferrer" style={{ marginBottom: '1rem', textAlign: 'center' }}>
-              <ExternalLink size={18} /> {t('invest.openGateway')}
-            </a>
+          {payment.address ? (
+            <div style={{ textAlign: 'center', margin: '0 0 1rem' }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payment.address)}`}
+                alt={ar ? 'رمز QR لعنوان الدفع' : 'QR code for the deposit address'}
+                width={220}
+                height={220}
+                style={{ borderRadius: '12px', background: '#fff', padding: '8px' }}
+              />
+            </div>
           ) : null}
 
           {payment.address ? (
@@ -239,6 +226,14 @@ export default function Invest() {
                 <button type="button" className="icon-btn" title={t('common.copy')} onClick={() => copy(payment.address)}><Clipboard size={16} /></button>
               </div>
             </label>
+          ) : null}
+
+          {payment.checkout_url ? (
+            <a href={payment.checkout_url} target="_blank" rel="noreferrer" className="small muted center"
+               style={{ display: 'block', marginTop: '.5rem' }}>
+              <ExternalLink size={13} style={{ verticalAlign: 'middle' }} />{' '}
+              {ar ? 'أو افتح صفحة الدفع الخاصة بـ Cryptomus' : 'Or open the Cryptomus payment page'}
+            </a>
           ) : null}
 
           {payment.payment_mode === 'manual' ? (

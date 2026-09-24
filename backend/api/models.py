@@ -700,6 +700,10 @@ class PlatformSettings(models.Model):
     S_PAYRAM_API_KEY_TEST = "payram_api_key_test"
     S_PAYRAM_BASE_URL_PROD = "payram_base_url_production"
     S_PAYRAM_API_KEY_PROD = "payram_api_key_production"
+
+    S_CRYPTOMUS_MERCHANT_ID = "cryptomus_merchant_id"
+    S_CRYPTOMUS_PAYMENT_KEY = "cryptomus_payment_key"
+    S_CRYPTOMUS_PAYOUT_KEY = "cryptomus_payout_key"
     S_DEFAULT_LANG = "default_lang"
 
     def __str__(self):

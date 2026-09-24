@@ -61,6 +61,8 @@ from api.services import (
     verify_btcpay_signature,
     verify_nowpayments_signature,
     verify_payram_signature,
+    verify_cryptomus_signature,
+    handle_cryptomus_webhook,
     verify_webhook_signature,
     send_platform_to_user,
     test_payram_connection,
@@ -526,28 +528,34 @@ class GatewayWebhookView(views.APIView):
         sig_gateway = request.META.get("HTTP_X_GATEWAY_SIGNATURE", "")
         sig_btcpay = request.META.get("HTTP_BTCPAY_SIG", "")
         sig_nowpayments = request.META.get("HTTP_X_NOWPAYMENTS_SIG", "")
-        ok = (
+        data = _parse_webhook_body(raw)
+        header_ok = (
             bool(sig_payram and verify_payram_signature(raw, sig_payram))
             or bool(sig_gateway and verify_webhook_signature(raw, sig_gateway))
             or bool(sig_btcpay and verify_btcpay_signature(raw, sig_btcpay))
             or bool(sig_nowpayments and verify_nowpayments_signature(raw, sig_nowpayments))
         )
-        if not ok:
+        # Cryptomus signs the JSON body itself ("sign" field), not a header.
+        is_cryptomus = isinstance(data, dict) and "sign" in data and not header_ok
+        cryptomus_ok = is_cryptomus and verify_cryptomus_signature(data)
+        if not (header_ok or cryptomus_ok):
             return response.Response(
                 {"detail": "Bad signature."}, status=status.HTTP_400_BAD_REQUEST
             )
-        data = _parse_webhook_body(raw)
         if data is None:
             return response.Response(
                 {"detail": "Invalid payload."}, status=status.HTTP_400_BAD_REQUEST
             )
-        event = str(data.get("event_type") or "").lower()
-        if event.startswith("payout."):
-            handled = handle_payram_payout_webhook(data)
-        elif data.get("reference_id") or data.get("invoice_id") or data.get("paymentState"):
-            handled = handle_payram_payment_webhook(data)
+        if cryptomus_ok:
+            handled = handle_cryptomus_webhook(data)
         else:
-            handled = handle_gateway_webhook(data)
+            event = str(data.get("event_type") or "").lower()
+            if event.startswith("payout."):
+                handled = handle_payram_payout_webhook(data)
+            elif data.get("reference_id") or data.get("invoice_id") or data.get("paymentState"):
+                handled = handle_payram_payment_webhook(data)
+            else:
+                handled = handle_gateway_webhook(data)
         if handled:
             return response.Response({"status": "ok"})
         return response.Response({"status": "ignored"}, status=status.HTTP_200_OK)
@@ -1296,13 +1304,18 @@ class WithdrawalCreateView(views.APIView):
             wallet.withdrawable_balance -= amount
             wallet.save(update_fields=["withdrawable_balance", "updated_at"])
             withdrawal = Withdrawal.objects.create(
-                user=user,
-                coin=coin,
-                address=address,
-                network=network,
-                amount=amount,
-                fee=fee,
+                user=user, coin=coin, address=address,
+                network=network, amount=amount, fee=fee,
             )
+
+        mode = PlatformSettings.get(PlatformSettings.S_PAYOUT_MODE, "manual")
+        if mode == "automatic":
+            ok, message = send_platform_to_user(withdrawal)  # → PayRam payout API
+            if not ok:
+                # roll back balance or mark withdrawal failed — needs a decision
+                withdrawal.mark_failed(message)
+            else:
+                withdrawal.mark_sent()
         return response.Response(
             {
                 "withdrawal": WithdrawalSerializer(withdrawal).data,
