@@ -41,8 +41,7 @@ export default function Withdraw() {
     setSettings(dash.data.settings)
     const available = (dash.data.wallets ?? []).filter(
       (w) =>
-        String(w.coin.symbol).toUpperCase() !== 'USD' &&
-        (parseFloat(w.withdrawable_balance) > 0 || parseFloat(w.invested_balance) > 0)
+        parseFloat(w.withdrawable_balance) > 0 || parseFloat(w.invested_balance) > 0
     )
     setWallets(available)
     setAccounts(accs.data ?? [])

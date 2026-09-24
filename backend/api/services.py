@@ -675,7 +675,7 @@ def _create_payram_payout(coin, to_address, amount, order_ref=None, user=None, n
     body = {
         "email": user.email or f"user{user.pk}@miyartrading.com",
         "blockchainCode": net,
-        "currencyCode": str(coin.symbol).upper(),
+        "currencyCode": "USDT" if str(coin.symbol).upper() == "USD" else str(coin.symbol).upper(),
         "amount": _amount_str(coin, amount),
         "toAddress": to_address,
         "customerID": str(user.pk),
