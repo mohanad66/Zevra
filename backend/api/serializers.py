@@ -318,6 +318,36 @@ class WithdrawalInputSerializer(serializers.Serializer):
                 {"coin_id": tr("Invalid or inactive coin.", self.context.get("request"))}
             )
 
+        if coin.symbol.upper() == "USD":
+            raise serializers.ValidationError(
+                {"coin_id": tr("This coin cannot be withdrawn.", self.context.get("request"))}
+            )
+
+        net = (attrs.get("network") or coin.chain or "").upper()
+        if net[:3] == "ERC":
+            net = "ETH20"
+        if net not in {
+            "TRC20",
+            "POL",
+            "POLYGON",
+            "ETH20",
+            "ETH",
+            "BEP20",
+            "BSC",
+            "BASE",
+            "TRON",
+            "TRX",
+        }:
+            raise serializers.ValidationError(
+                {
+                    "network": tr(
+                        "Unsupported withdrawal network {net}.",
+                        self.context.get("request"),
+                        net=net,
+                    )
+                }
+            )
+
         amount = attrs["amount"]
         if amount <= 0:
             raise serializers.ValidationError(
