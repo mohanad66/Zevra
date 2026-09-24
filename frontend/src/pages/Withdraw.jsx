@@ -25,6 +25,13 @@ export default function Withdraw() {
   const qrDiv = useRef(null)
   const qrScan = useRef(null)
 
+  const NETWORKS = [
+    { id: 'TRC20', label: 'USDT · TRC20', hint: 'Tron', enabled: true },
+    { id: 'POL', label: 'USDT · POL', hint: 'Polygon', enabled: true },
+    { id: 'ETH20', label: 'USDT · ETH20', hint: 'Ethereum', enabled: true },
+    { id: 'BEP20', label: 'USDT · BEP20', hint: 'BNB Chain', enabled: true },
+  ]
+
   async function loadData() {
     const [dash, accs, wds] = await Promise.all([
       client.get('/dashboard/'),
@@ -32,13 +39,18 @@ export default function Withdraw() {
       client.get('/withdrawals/'),
     ])
     setSettings(dash.data.settings)
-    setWallets(dash.data.wallets ?? [])
+    // The owner wants USDT to be the only withdrawal coin, so we only show
+    // USDT wallets here (the platform payout gateway settles USDT).
+    const usdt = (dash.data.wallets ?? []).filter(
+      (w) => String(w.coin.symbol).toUpperCase() === 'USDT'
+    )
+    setWallets(usdt)
     setAccounts(accs.data ?? [])
     setWithdrawals(wds.data ?? [])
-    const first = dash.data.wallets?.[0]
+    const first = usdt[0]
     if (first) {
       setCoinId(first.coin.id)
-      setNetwork(first.coin.chain || 'TRC20')
+      if (NETWORKS.some((n) => n.id === first.coin.chain)) setNetwork(first.coin.chain)
     }
   }
 
@@ -128,7 +140,7 @@ export default function Withdraw() {
           <select value={coinId ?? ''} onChange={(e) => {
             const c = wallets.find((w) => w.coin.id === Number(e.target.value))
             setCoinId(Number(e.target.value))
-            setNetwork(c?.coin.chain || 'TRC20')
+            if (c && NETWORKS.some((n) => n.id === c.coin.chain)) setNetwork(c.coin.chain)
           }}>
             {wallets.map((w) => (
               <option key={w.coin.id} value={w.coin.id}>
@@ -168,8 +180,8 @@ export default function Withdraw() {
         <label>
           {t('wd.network')}
           <select value={network} onChange={(e) => setNetwork(e.target.value)}>
-            {['TRC20', 'ERC20', 'BEP20', 'BEP2', 'SOL', 'TON'].map((n) => (
-              <option key={n}>{n}</option>
+            {NETWORKS.filter((n) => n.enabled).map((n) => (
+              <option key={n.id} value={n.id}>{n.label}</option>
             ))}
           </select>
         </label>

@@ -29,7 +29,6 @@ class Command(BaseCommand):
         sample_coins = [
             ("Tether USD", "USDT", "TRC20", "1.0", True),
             ("USD Coin", "USDC", "TRC20", "1.0", True),
-            ("USD", "USD", "TRC20", "1.0", True),
             ("Dai", "DAI", "ERC20", "1.0", True),
             ("Toncoin", "TON", "TON", "5.5", False),
             ("Solana", "SOL", "SOL", "140.0", False),

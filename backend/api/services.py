@@ -605,8 +605,11 @@ def _handle_cryptomus_payout_webhook(order_id, data):
 _PAYRAM_PAYOUT_CHAINS = {
     "TRC20": "TRX",
     "ERC20": "ETH",
-    "BASE": "BASE",
+    "ETH20": "ETH",
+    "POL": "POLYGON",
     "POLYGON": "POLYGON",
+    "BEP20": "BSC",
+    "BASE": "BASE",
 }
 
 
@@ -648,12 +651,12 @@ def send_platform_to_user(coin, to_address, amount, network="", order_ref=None, 
     if mode == "manual":
         return ""
     if mode == "provider":
-        return _create_payram_payout(coin, to_address, amount, order_ref, user)
+        return _create_payram_payout(coin, to_address, amount, order_ref, user, network)
     # simulate
     return _simulated_hash("send")
 
 
-def _create_payram_payout(coin, to_address, amount, order_ref=None, user=None):
+def _create_payram_payout(coin, to_address, amount, order_ref=None, user=None, network=""):
     """Create a PayRam payout to the user's address. Returns its PayRam id."""
     env, base, key = _payram_active()
     if not base or not key:
@@ -661,11 +664,11 @@ def _create_payram_payout(coin, to_address, amount, order_ref=None, user=None):
             "PayRam is not configured. Set the BASE_URL and API key for the "
             "active environment in Admin > Payments."
         )
-    net = _PAYRAM_PAYOUT_CHAINS.get((coin.chain or "").upper())
+    net = _PAYRAM_PAYOUT_CHAINS.get((network or coin.chain or "").upper())
     if not net:
         raise ValueError(
-            f"PayRam does not support payouts on {coin.chain or coin.symbol}. "
-            "Supported chains: ETH, BASE, POLYGON, TRX."
+            f"PayRam does not support payouts on {network or coin.chain or coin.symbol}. "
+            "Supported chains: ETH, BASE, POLYGON, TRX, BSC."
         )
     if user is None:
         raise ValueError("PayRam payouts need a recipient user.")
