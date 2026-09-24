@@ -5,16 +5,17 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmt } from '../components/Format'
-import { TrendingUp, ExternalLink, CheckCircle2, Clipboard, Loader2 } from 'lucide-react'
+import { TrendingUp, CheckCircle2, Clipboard, Loader2 } from 'lucide-react'
 
-// Networks the customer can pay on. `enabled` must match what your PayRam
-// server really supports (and _INVEST_NETWORKS in backend/api/services.py).
-// To turn one on later: set enabled: true here and uncomment it in services.py.
+// Networks the customer can pay on. PayRam only deploys real deposit addresses
+// on Tron, Polygon, Ethereum, Base and Bitcoin, so every enabled choice must
+// match _PAYRAM_DEPOSIT_CODES in backend/api/services.py. BEP20 / SOL have no
+// PayRam deposit wallet yet, so they stay disabled ("coming soon").
 const NETWORKS = [
   { id: 'TRC20', label: 'TRC20', hint: 'Tron', enabled: true },
   { id: 'POL', label: 'POL', hint: 'Polygon', enabled: true },
-  { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: true },
-  { id: 'SOL', label: 'SOL', hint: 'Solana', enabled: true },
+  { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: false },
+  { id: 'SOL', label: 'SOL', hint: 'Solana', enabled: false },
 ]
 
 export default function Invest() {
@@ -85,6 +86,40 @@ export default function Invest() {
       toast(apiError(err), 'error')
     } finally { setBusy(false) }
   }
+
+  // Provider checkout: PayRam watches the deposit address and confirms the
+  // payment on its side. We poll our backend so the user stays on this page —
+  // "checking" until PayRam reports the order filled, then we switch to the
+  // confirmed screen automatically.
+  useEffect(() => {
+    if (phase !== 'checkout' || payment?.payment_mode !== 'provider' || !payment?.order_ref) return
+    let active = true
+    const check = async () => {
+      try {
+        const res = await client.get('/invest/status/', { params: { order_ref: payment.order_ref } })
+        const st = res.data || {}
+        if (!active) return
+        if (st.status === 'paid') {
+          setPhase('confirmed')
+          toast(st.message || t('invest.confirmed'), 'success')
+        } else if (st.status === 'failed') {
+          toast(st.message || t('invest.paymentExpired'), 'error')
+          setPhase('form')
+          setPayment(null)
+        }
+      } catch (err) {
+        if (!active) return
+        if (err?.response?.status === 404) {
+          toast(t('invest.paymentExpired'), 'error')
+          setPhase('form')
+          setPayment(null)
+        }
+      }
+    }
+    check()
+    const id = setInterval(check, 5000)
+    return () => { active = false; clearInterval(id) }
+  }, [phase, payment])
 
   function copy(text) {
     navigator.clipboard.writeText(text).then(() => toast(t('common.copied'), 'success')).catch(() => {})
@@ -228,21 +263,23 @@ export default function Invest() {
             </label>
           ) : null}
 
-          {payment.checkout_url ? (
-            <a href={payment.checkout_url} target="_blank" rel="noreferrer" className="small muted center"
-               style={{ display: 'block', marginTop: '.5rem' }}>
-              <ExternalLink size={13} style={{ verticalAlign: 'middle' }} />{' '}
-              {ar ? 'أو افتح صفحة الدفع الخاصة بـ Cryptomus' : 'Or open the Cryptomus payment page'}
-            </a>
+          {payment.payment_mode === 'provider' ? (
+            <div className="notice" style={{ textAlign: 'center' }}>
+              <Loader2 className="spin" size={20} style={{ marginBottom: '.35rem' }} />
+              <div><b>{t('invest.checkingPayment')}</b></div>
+              <span className="small">{t('invest.checkingBody')}</span>
+            </div>
           ) : null}
 
           {payment.payment_mode === 'manual' ? (
             <p className="small muted">{t('invest.awaitingAdmin')}</p>
-          ) : (
+          ) : null}
+
+          {payment.payment_mode !== 'manual' && payment.payment_mode !== 'provider' ? (
             <button className="btn success lg block" style={{ marginTop: '1rem' }} disabled={busy} onClick={confirmPayment}>
               {busy ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />} {busy ? t('invest.confirming') : t('invest.completedPayment')}
             </button>
-          )}
+          ) : null}
 
           <button className="btn ghost" style={{ marginTop: '.5rem' }} onClick={() => { setPhase('form'); setPayment(null) }}>
             {t('invest.newOrder')}

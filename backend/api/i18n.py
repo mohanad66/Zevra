@@ -35,6 +35,10 @@ AR = {
     "Investment created. Waiting for payment.": "تم إنشاء الاستثمار. في انتظار الدفع.",
     "Investment confirmed and balance credited.": "تم تأكيد الاستثمار وإيداع الرصيد.",
     "Minimum investment for {symbol} is {min}.": "الحد الأدنى للاستثمار في {symbol} هو {min}.",
+    "Payment order not found.": "طلب الدفع غير موجود.",
+    "Payment received. Your investment is confirmed and your balance is updated.": "تم استلام الدفعة. تم تأكيد استثمارك وتحديث رصيدك.",
+    "Payment failed or expired.": "فشلت الدفعة أو انتهت صلاحيتها.",
+    "Waiting for your payment.": "في انتظار دفعتك.",
 
     # Withdraw
     "KYC verification is required to withdraw.": "مطلوب التحقق من الهوية (KYC) للسحب.",

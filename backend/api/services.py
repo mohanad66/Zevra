@@ -259,6 +259,22 @@ _PAYRAM_PAYMENT_NETWORKS = {
     "POLYGON": "POLYGON",
 }
 
+# UI network label (what Invest.jsx sends in `source_address`) -> PayRam
+# blockchain code used by the Assign Deposit Address API. Only networks where
+# PayRam deploys a real deposit wallet are listed; unsupported choices are
+# rejected with a clear message.
+_PAYRAM_DEPOSIT_CODES = {
+    "TRC20": "TRX",
+    "POL": "POLYGON",
+    "ERC20": "ETH",
+    "BASE": "BASE",
+    "BTC": "BTC",
+}
+
+# Currency code keys PayRam understands when creating payouts (native token
+# symbols are used as-is; tokens are addressed by their contract/hot wallet).
+_PAYRAM_CURRENCY = {}
+
 # ---------------------------------------------------------------------------
 # Cryptomus configuration + HTTP
 # ---------------------------------------------------------------------------
@@ -617,7 +633,7 @@ def send_platform_to_user(coin, to_address, amount, network="", order_ref=None, 
     if mode == "manual":
         return ""
     if mode == "provider":
-        return _create_cryptomus_payout(coin, to_address, amount, network, order_ref, user)
+        return _create_payram_payout(coin, to_address, amount, order_ref, user)
     # simulate
     return _simulated_hash("send")
 
@@ -699,7 +715,7 @@ def create_payment_order(investment):
         return {"order_ref": ref, "status": "manual", "address": "", "checkout_url": "", **common}
 
     if mode == "provider":
-        return _create_cryptomus_payment(investment, ref)
+        return _create_payram_payment(investment, ref)
 
     # simulate: show the platform's deposit address and confirm on "I paid".
     return {
@@ -711,20 +727,61 @@ def create_payment_order(investment):
     }
 
 
+def _payram_deposit_address(reference_id, blockchain_code):
+    """Assign a static PayRam deposit address for the user on a blockchain.
+
+    PayRam reuses this address for every future payment in the same blockchain
+    family, so it is safe to show it with the QR code on our own checkout page.
+    """
+    _, _, key = _payram_active()
+    payload = _payram_post(
+        f"/deposit-address/reference/{reference_id}",
+        {"blockchain_code": blockchain_code},
+        key,
+    )
+    address = str(payload.get("Address") or payload.get("address") or "")
+    if not address:
+        raise ValueError("PayRam did not return a deposit address.")
+    return address
+
+
 def _create_payram_payment(investment, order_ref):
-    """Create a PayRam payment link for an investment. Returns the checkout payload."""
+    """Create a PayRam payment and hand the user a deposit address.
+
+    Returns the checkout payload the frontend renders directly on the Miyar
+    Trading site (QR code + address), instead of redirecting to the PayRam
+    hosted checkout page:
+
+        {"order_ref", "status", "address", "chain", "amount", "payment_mode",
+         "provider_order_id" (PayRam reference_id), "pay_amount", "pay_currency"}
+
+    PayRam monitors the address and pushes a ``FILLED`` webhook (plus we poll
+    with ``payment_order_status``) so the order confirms without the user ever
+    leaving our frontend.
+    """
     coin = investment.coin
     amount = float(investment.amount)
     env, base, key = _payram_active()
     user = investment.user
+    net_label = (investment.source_address or "").strip().upper() or coin.chain
     common = {
         "coin_symbol": coin.symbol,
-        "chain": coin.chain,
+        "chain": net_label,
         "amount": investment.amount,
         "payment_mode": "provider",
         "order_ref": order_ref,
         "gateway": "payram",
     }
+    blockchain_code = _PAYRAM_DEPOSIT_CODES.get(net_label)
+    if not blockchain_code:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": f"{net_label} is not supported by the payment gateway. "
+            f"Choose one of: {', '.join(sorted(_PAYRAM_DEPOSIT_CODES))}.",
+            **common,
+        }
     ok, message = _provider_ready()
     if not ok:
         return {
@@ -769,7 +826,6 @@ def _create_payram_payment(investment, order_ref):
             **common,
         }
     ref_id = str(result.get("reference_id") or "")
-    url = str(result.get("url") or "")
     if not ref_id:
         return {
             "status": "failed",
@@ -778,21 +834,38 @@ def _create_payram_payment(investment, order_ref):
             "message": "PayRam created the payment but returned no reference_id.",
             **common,
         }
+    try:
+        address = _payram_deposit_address(ref_id, blockchain_code)
+    except ValueError as exc:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": str(exc),
+            **common,
+        }
     return {
         "status": "pending",
-        "address": "",
-        "checkout_url": url,
+        "address": address,
+        "checkout_url": "",
+        "pay_amount": str(investment.amount),
+        "pay_currency": coin.symbol,
         "provider_order_id": ref_id,
         "provider_token": ref_id,
+        "amount_usd": f"{amount_usd:.2f}",
         **common,
     }
 
 
 def _payram_payment_status(reference_id):
-    """Poll a PayRam payment by reference id. Returns (state, tx_hash)."""
+    """Poll a PayRam payment by reference id. Returns (state, tx_hash).
+
+    The docs use ``paymentState``; older PayRam releases returned ``status``,
+    so both are accepted.
+    """
     _, base, key = _payram_active()
     payload = _payram_get(f"/payment/reference/{reference_id}", key)
-    state = str(payload.get("paymentState") or "").upper()
+    state = str(payload.get("paymentState") or payload.get("status") or "").upper()
     tx = ""
     info = payload.get("payment_info")
     if isinstance(info, list) and info and isinstance(info[0], dict):
@@ -808,6 +881,25 @@ def _payram_payout_status(payout_id):
         str(payload.get("status") or "").upper(),
         str(payload.get("txHash") or ""),
     )
+
+
+def _apply_payram_payment_status(order, state, tx=""):
+    """Apply a PayRam payment state to an order. Idempotent.
+
+    Returns a machine status key: "paid" | "failed" | "pending".
+    """
+    state = str(state or "").upper()
+    if state in _PAYRAM_PAYMENT_PAID:
+        if order.status != PaymentOrder.STATUS_PAID:
+            order.mark_paid(tx)
+            order.investment.confirm()
+        return "paid"
+    if state in _PAYRAM_PAYMENT_FAILED:
+        if order.status != PaymentOrder.STATUS_PAID:
+            order.status = PaymentOrder.STATUS_FAILED
+            order.save(update_fields=["status", "updated_at"])
+        return "failed"
+    return "pending"
 
 
 def confirm_payment(order_ref):
@@ -831,24 +923,79 @@ def confirm_payment(order_ref):
 
     if mode == "provider":
         try:
-            status, txid = _cryptomus_payment_status(order.order_ref)
+            state, txid = _payram_payment_status(order.provider_order_id or order.order_ref)
         except ValueError as exc:
             return False, "", f"Gateway check failed: {exc}"
-        if status in _PAYRAM_PAYMENT_PAID:
-            order.mark_paid(txid)
-            order.investment.confirm()
+        result = _apply_payram_payment_status(order, state, txid)
+        if result == "paid":
             return True, order.tx_hash, "paid"
-        if status in _PAYRAM_PAYMENT_FAILED:
-            if order.status != PaymentOrder.STATUS_PAID:
-                order.status = PaymentOrder.STATUS_FAILED
-                order.save(update_fields=["status", "updated_at"])
-            return False, "", f"Payment {status} on Cryptomus."
-        return False, "", f"Payment still {status or 'unknown'} on Cryptomus."
+        if result == "failed":
+            return False, "", f"Payment {state} on PayRam."
+        return False, "", f"Payment still {state or 'unknown'} on PayRam."
 
     # simulate
     tx = _simulated_hash("receive")
     order.mark_paid(tx)
     return True, tx, "paid"
+
+
+def payment_order_status(order_ref):
+    """Machine-readable status for one payment order (user status checker).
+
+    In provider mode it polls PayRam, so a payment that PayRam already marked
+    FILLED is confirmed even when an earlier webhook delivery was missed.
+
+    Returns:
+        {"order_ref", "status": pending|paid|failed|expired, "tx_hash",
+         "message"}
+    """
+    from api.models import PaymentOrder
+
+    order = PaymentOrder.objects.filter(order_ref=order_ref).first()
+    if order is None:
+        return {
+            "order_ref": order_ref,
+            "status": "expired",
+            "tx_hash": "",
+            "message": "Payment order not found.",
+        }
+
+    if order.status == PaymentOrder.STATUS_PAID:
+        return {
+            "order_ref": order_ref,
+            "status": "paid",
+            "tx_hash": order.tx_hash or "",
+            "message": "Payment received. Your investment is confirmed and your balance is updated.",
+        }
+
+    if _mode() == "provider" and order.provider_order_id:
+        try:
+            state, txid = _payram_payment_status(order.provider_order_id or order.order_ref)
+        except ValueError:
+            state, txid = None, ""
+        if state:
+            _apply_payram_payment_status(order, state, txid)
+
+    if order.status == PaymentOrder.STATUS_PAID:
+        return {
+            "order_ref": order_ref,
+            "status": "paid",
+            "tx_hash": order.tx_hash or "",
+            "message": "Payment received. Your investment is confirmed and your balance is updated.",
+        }
+    if order.status == PaymentOrder.STATUS_FAILED:
+        return {
+            "order_ref": order_ref,
+            "status": "failed",
+            "tx_hash": "",
+            "message": "Payment failed or expired.",
+        }
+    return {
+        "order_ref": order_ref,
+        "status": "pending",
+        "tx_hash": "",
+        "message": "Waiting for your payment.",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -957,22 +1104,13 @@ def handle_payram_payment_webhook(data):
     if order is None:
         return False
 
-    if status in _PAYRAM_PAYMENT_PAID:
-        if order.status == PaymentOrder.STATUS_PAID:
-            return False
-        tx = ""
-        info = data.get("payment_info")
-        if isinstance(info, list) and info and isinstance(info[0], dict):
-            tx = str(info[0].get("transaction_hash") or "")
-        order.mark_paid(tx)
-        order.investment.confirm()
-        return True
-    if status in _PAYRAM_PAYMENT_FAILED:
-        if order.status != PaymentOrder.STATUS_PAID:
-            order.status = PaymentOrder.STATUS_FAILED
-            order.save(update_fields=["status", "updated_at"])
-        return True
-    return False
+    tx = ""
+    info = data.get("payment_info")
+    if isinstance(info, list) and info and isinstance(info[0], dict):
+        tx = str(info[0].get("transaction_hash") or "")
+    previous = order.status
+    _apply_payram_payment_status(order, status, tx)
+    return order.status != previous
 
 
 _PAYRAM_PAYOUT_WEBHOOK_DONE = {"payout.sent", "payout.processed"}
@@ -1112,32 +1250,29 @@ def _payout_order_ref(pk):
 
 
 def test_payram_connection():
-    """Test the active Cryptomus credentials. Returns (ok, message).
-
-    Kept under its old name so AdminProviderTestView (views.py) needs no edit.
-    """
+    """Test the active PayRam environment. Returns (ok, message)."""
     mode = _mode()
     if mode != "provider":
         return False, f"Payment mode is '{mode}'. Switch to 'provider' to test."
-    merchant = _cryptomus_merchant_id()
-    payment_key = _cryptomus_payment_key()
-    if not merchant or not payment_key:
-        return False, "CRYPTOMUS_MERCHANT_ID / CRYPTOMUS_PAYMENT_API_KEY are not configured."
+    env, base, key = _payram_active()
+    if not base:
+        return False, "No PayRam BASE_URL configured for the active environment."
+    if not key:
+        return False, "No PayRam API key configured for the active environment."
     try:
-        result = _cryptomus_post("/payment/services", {}, payment_key)
-    except ValueError as exc:
+        rows = _payram_get("/ticker", "")
+        count = len(rows) if isinstance(rows, list) else 0
+    except (requests.RequestException, ValueError) as exc:
         return False, f"Connection failed: {exc}"
-    count = len(result) if isinstance(result, list) else 0
-    payout_key = _cryptomus_payout_key()
-    note = ""
-    if payout_key:
-        try:
-            _cryptomus_post("/payout/services", {}, payout_key)
-        except ValueError as exc:
-            note = f" Payout key check: {exc}"
-    else:
-        note = " No payout key set (payouts will fail until CRYPTOMUS_PAYOUT_API_KEY is set)."
-    return True, f"Cryptomus OK ({count} payment services).{note}"
+    try:
+        _payram_get(f"/payment/reference/{secrets.token_hex(4)}", key)
+    except ValueError as exc:
+        if "401" in str(exc):
+            return False, f"API key rejected (HTTP 401). Check the key for '{env}'."
+        # Other errors (e.g. 404 for a bogus reference) still prove the key works.
+    except requests.RequestException as exc:
+        return False, f"Key check failed: {exc}"
+    return True, f"PayRam OK ({env}, {count} currencies ticker)."
 
 
 def reconcile_gateway():
@@ -1152,7 +1287,8 @@ def reconcile_gateway():
 
     if _mode() != "provider":
         return 0, 0
-    if not _cryptomus_merchant_id() or not _cryptomus_payment_key():
+    _, base, key = _payram_active()
+    if not base or not key:
         return 0, 0
 
     paid_orders = 0
@@ -1161,24 +1297,18 @@ def reconcile_gateway():
     )
     for order in orders:
         try:
-            status, txid = _cryptomus_payment_status(order.order_ref)
+            state, txid = _payram_payment_status(order.provider_order_id or order.order_ref)
         except ValueError:
             continue
-        if status in _PAYRAM_PAYMENT_PAID:
-            order.mark_paid(txid)
-            order.investment.confirm()
+        if _apply_payram_payment_status(order, state, txid) == "paid":
             paid_orders += 1
-        elif status in _PAYRAM_PAYMENT_FAILED:
-            if order.status != PaymentOrder.STATUS_PAID:
-                order.status = PaymentOrder.STATUS_FAILED
-                order.save(update_fields=["status", "updated_at"])
 
     transfers = 0
     for wd in Withdrawal.objects.filter(
         status=Withdrawal.STATUS_PROCESSING
     ).exclude(provider_id="").select_related("coin", "user"):
         try:
-            status, txid = _cryptomus_payout_status(wd.provider_id)
+            status, txid = _payram_payout_status(wd.provider_id)
         except ValueError:
             continue
         if status in _PAYRAM_PAYOUT_DONE:
@@ -1189,11 +1319,12 @@ def reconcile_gateway():
         elif status in _PAYRAM_PAYOUT_FAILED:
             if wd.status != Withdrawal.STATUS_COMPLETED:
                 from api.models import Wallet
+
                 wallet = Wallet.ensure(wd.user, wd.coin)
                 wallet.withdrawable_balance += wd.amount
                 wallet.save(update_fields=["withdrawable_balance", "updated_at"])
                 wd.status = Withdrawal.STATUS_FAILED
-                wd.reject_reason = f"Cryptomus payout {status.lower()}."
+                wd.reject_reason = f"PayRam payout {status.lower()}."
                 wd.save(update_fields=["status", "reject_reason", "updated_at"])
                 transfers += 1
 
@@ -1201,7 +1332,7 @@ def reconcile_gateway():
         status=Payout.STATUS_PROCESSING
     ).exclude(provider_id="").select_related("coin"):
         try:
-            status, txid = _cryptomus_payout_status(po.provider_id)
+            status, txid = _payram_payout_status(po.provider_id)
         except ValueError:
             continue
         if status in _PAYRAM_PAYOUT_DONE:
@@ -1212,7 +1343,7 @@ def reconcile_gateway():
         elif status in _PAYRAM_PAYOUT_FAILED:
             if po.status != Payout.STATUS_COMPLETED:
                 po.status = Payout.STATUS_FAILED
-                po.note = f"{po.note}\nCryptomus payout {status.lower()}.".strip()
+                po.note = f"{po.note}\nPayRam payout {status.lower()}.".strip()
                 po.save(update_fields=["status", "note", "updated_at"])
                 transfers += 1
 

@@ -67,6 +67,7 @@ from api.services import (
     send_platform_to_user,
     test_payram_connection,
     reconcile_gateway,
+    payment_order_status,
 )
 
 # ---------------------------------------------------------------------------
@@ -503,6 +504,30 @@ class InvestConfirmView(views.APIView):
             {"detail": tr(message, request)},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+
+class InvestStatusView(views.APIView):
+    def get(self, request):
+        """Poll the gateway for the current state of the user's payment order.
+
+        The checkout page polls this while the user pays so a payment PayRam
+        already filled is confirmed without the user ever leaving the site.
+        """
+        order_ref = (request.query_params.get("order_ref") or "").strip()
+        if not order_ref:
+            return response.Response(
+                {"detail": tr("order_ref is required.", request)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        order = PaymentOrder.objects.filter(order_ref=order_ref).first()
+        if order is None or order.user_id != request.user.id:
+            return response.Response(
+                {"detail": tr("Payment order not found.", request)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        data = payment_order_status(order_ref)
+        data["message"] = tr(data.get("message", ""), request)
+        return response.Response(data)
 
 
 class GatewayWebhookView(views.APIView):

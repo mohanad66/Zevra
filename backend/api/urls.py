@@ -26,6 +26,7 @@ urlpatterns = [
     # investing / withdrawing
     path("invest/", views.InvestView.as_view(), name="invest"),
     path("invest/confirm/", views.InvestConfirmView.as_view(), name="invest_confirm"),
+    path("invest/status/", views.InvestStatusView.as_view(), name="invest_status"),
     path("withdrawals/", views.WithdrawalListView.as_view(), name="withdrawals"),
     path("withdraw/", views.WithdrawalCreateView.as_view(), name="withdraw_create"),
 

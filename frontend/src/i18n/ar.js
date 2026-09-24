@@ -174,6 +174,9 @@ export const ar = {
   'invest.awaitingAdmin': 'في انتظار تأكيد الإدارة.',
   'invest.confirming': 'جارٍ التأكيد…',
   'invest.completedPayment': 'لقد أكملت الدفع',
+  'invest.checkingPayment': 'جارٍ التحقق من دفعتك…',
+  'invest.checkingBody': 'نراقب الشبكة بحثاً عن إيداعك. أبقِ هذه الصفحة مفتوحة — فور تأكيد بوابة الدفع لدفعتك، سيتم تأكيد استثمارك تلقائياً.',
+  'invest.paymentExpired': 'لم يعد هذا الدفع صالحاً. يرجى البدء بطلب جديد.',
   'invest.newOrder': 'ابدأ طلباً جديداً',
 
   // withdraw

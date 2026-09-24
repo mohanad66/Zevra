@@ -174,6 +174,9 @@ export const en = {
   'invest.awaitingAdmin': 'Awaiting admin confirmation.',
   'invest.confirming': 'Confirming…',
   'invest.completedPayment': 'I have completed the payment',
+  'invest.checkingPayment': 'Checking your payment…',
+  'invest.checkingBody': 'We are watching the network for your deposit. Keep this page open — as soon as PayRam confirms your payment, your investment will be confirmed automatically.',
+  'invest.paymentExpired': 'This payment is no longer valid. Please start a new order.',
   'invest.newOrder': 'Start a new order',
 
   // withdraw
