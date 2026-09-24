@@ -403,6 +403,7 @@ DEFAULT_PLATFORM_SETTINGS = [
     (PlatformSettings.S_BONUS_PERCENT, "5", "Profit/seasonal bonus granted by admin, % of invested balance"),
     (PlatformSettings.S_MIN_WITHDRAWAL, "10", "Minimum withdrawal amount"),
     (PlatformSettings.S_PAYMENT_MODE, "simulate", "simulate | provider (PayRam) | manual"),
+    (PlatformSettings.S_PAYOUT_MODE, "automatic", "automatic | manual — auto-send payouts on withdrawal"),
     (PlatformSettings.S_PAYMENT_PROVIDER_URL, "", "(legacy) provider API base URL"),
     (PlatformSettings.S_PAYMENT_PROVIDER_KEY, "", "(legacy) provider API key"),
     (PlatformSettings.S_PAYMENT_PROVIDER_SECRET, "", "(legacy) provider API secret"),

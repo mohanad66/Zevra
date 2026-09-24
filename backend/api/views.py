@@ -68,6 +68,7 @@ from api.services import (
     test_payram_connection,
     reconcile_gateway,
     payment_order_status,
+    _withdrawal_order_ref,
 )
 
 # ---------------------------------------------------------------------------
@@ -1333,19 +1334,46 @@ class WithdrawalCreateView(views.APIView):
                 network=network, amount=amount, fee=fee,
             )
 
-        mode = PlatformSettings.get(PlatformSettings.S_PAYOUT_MODE, "manual")
+        mode = PlatformSettings.get(PlatformSettings.S_PAYOUT_MODE, "automatic")
+        sent_now = False
         if mode == "automatic":
-            ok, message = send_platform_to_user(withdrawal)  # → PayRam payout API
-            if not ok:
-                # roll back balance or mark withdrawal failed — needs a decision
-                withdrawal.mark_failed(message)
-            else:
-                withdrawal.mark_sent()
+            try:
+                ref = send_platform_to_user(
+                    coin,
+                    address,
+                    amount,
+                    network=network,
+                    order_ref=_withdrawal_order_ref(withdrawal.pk),
+                    user=user,
+                )
+            except Exception as exc:  # noqa: BLE001
+                with transaction.atomic():
+                    wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                    wallet.withdrawable_balance += amount
+                    wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+                    withdrawal.mark_failed(f"Payout failed: {exc}")
+                return response.Response(
+                    {"error": f"Withdrawal failed and balance was refunded: {exc}"},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            provider = (
+                PlatformSettings.get(PlatformSettings.S_PAYMENT_MODE, "simulate").lower()
+                == "provider"
+            )
+            if provider and ref:
+                withdrawal.provider_id = ref
+                withdrawal.status = Withdrawal.STATUS_PROCESSING
+                withdrawal.save(update_fields=["status", "provider_id", "updated_at"])
+            elif ref:
+                withdrawal.mark_sent(tx_hash=ref)
+            sent_now = ref is not None and ref != ""
         return response.Response(
             {
                 "withdrawal": WithdrawalSerializer(withdrawal).data,
                 "message": tr(
-                    "Withdrawal request created and is pending approval. "
+                    "Withdrawal sent to your address."
+                    if sent_now
+                    else "Withdrawal request created and is pending approval. "
                     "Funds are reserved and will be sent to your address once approved.",
                     request,
                 ),

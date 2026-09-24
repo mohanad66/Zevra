@@ -463,12 +463,14 @@ class Withdrawal(models.Model):
     STATUS_COMPLETED = "completed"
     STATUS_REJECTED = "rejected"
     STATUS_CANCELLED = "cancelled"
+    STATUS_FAILED = "failed"
     STATUS = [
         (STATUS_PENDING, "Pending"),
         (STATUS_PROCESSING, "Processing"),
         (STATUS_COMPLETED, "Completed"),
         (STATUS_REJECTED, "Rejected"),
         (STATUS_CANCELLED, "Cancelled"),
+        (STATUS_FAILED, "Failed"),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="withdrawals")
@@ -493,6 +495,17 @@ class Withdrawal(models.Model):
 
     def __str__(self):
         return f"{self.user.email} -{self.amount} {self.coin.symbol} [{self.status}]"
+
+    def mark_sent(self, tx_hash="", provider_id=""):
+        self.tx_hash = tx_hash or self.tx_hash
+        self.provider_id = provider_id or self.provider_id
+        self.status = self.STATUS_COMPLETED
+        self.save(update_fields=["status", "tx_hash", "provider_id", "updated_at"])
+
+    def mark_failed(self, message=""):
+        self.status = self.STATUS_FAILED
+        self.reject_reason = message or self.reject_reason
+        self.save(update_fields=["status", "reject_reason", "updated_at"])
 
 
 class CryptoAccount(models.Model):
@@ -687,6 +700,7 @@ class PlatformSettings(models.Model):
     S_BONUS_PERCENT = "bonus_payout_percent"
     S_MIN_WITHDRAWAL = "min_withdrawal_amount"
     S_PAYMENT_MODE = "payment_mode"
+    S_PAYOUT_MODE = "payout_mode"
     S_PAYMENT_PROVIDER_URL = "payment_provider_url"
     S_PAYMENT_PROVIDER_KEY = "payment_provider_key"
     S_PAYMENT_PROVIDER_SECRET = "payment_provider_secret"

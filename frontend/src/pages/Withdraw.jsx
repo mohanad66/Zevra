@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Html5Qrcode } from 'html5-qrcode'
 import { client } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmtCrypto, StatusBadge } from '../components/Format'
-import { ArrowDownToLine } from 'lucide-react'
+import { ArrowDownToLine, QrCode, Camera, X } from 'lucide-react'
 
 export default function Withdraw() {
   const { apiError } = useAuth()
@@ -20,6 +21,9 @@ export default function Withdraw() {
   const [address, setAddress] = useState('')
   const [network, setNetwork] = useState('TRC20')
   const [busy, setBusy] = useState(false)
+  const [qrOpen, setQrOpen] = useState(false)
+  const qrDiv = useRef(null)
+  const qrScan = useRef(null)
 
   async function loadData() {
     const [dash, accs, wds] = await Promise.all([
@@ -39,6 +43,36 @@ export default function Withdraw() {
   }
 
   useEffect(() => { loadData().catch(() => {}) }, [])
+
+  useEffect(() => {
+    if (!qrOpen) return
+    let scanner = null
+    ;(async () => {
+      try {
+        scanner = new Html5Qrcode('qr-reader-box')
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          async (decodedText) => {
+            setAddress(decodedText.trim())
+            setQrOpen(false)
+            toast(t('wd.qrLinked'), 'success')
+          },
+          () => {}
+        )
+        qrScan.current = scanner
+      } catch (err) {
+        setQrOpen(false)
+        toast(apiError(err), 'error')
+      }
+    })()
+    return () => {
+      if (scanner) {
+        scanner.stop().then(() => scanner.clear()).catch(() => {})
+      }
+      qrScan.current = null
+    }
+  }, [qrOpen])
 
   const wallet = useMemo(() => wallets.find((w) => w.coin.id === coinId), [wallets, coinId])
   const feePct = settings?.withdraw_fee_percent ?? 1
@@ -142,12 +176,17 @@ export default function Withdraw() {
 
         <label>
           {t('wd.receiveTo')}
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder={t('wd.addressPlaceholder')}
-            required
-          />
+          <div className="row2">
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder={t('wd.addressPlaceholder')}
+              required
+            />
+            <button type="button" className="btn ghost" onClick={() => setQrOpen(true)}>
+              <QrCode size={16} /> {t('wd.scanQr')}
+            </button>
+          </div>
         </label>
         {accounts.length > 0 && (
           <div className="saved-accounts">
@@ -192,6 +231,25 @@ export default function Withdraw() {
             </table>
           </div>
         </section>
+      )}
+      {qrOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+          onClick={() => setQrOpen(false)}
+        >
+          <div className="card form" style={{ width: '100%', maxWidth: 420, padding: '1.2rem' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+              <h3 style={{ margin: 0 }}>
+                <Camera size={16} style={{ verticalAlign: '-2px', marginRight: '0.3rem' }} /> {t('wd.scanQrTitle')}
+              </h3>
+              <button className="btn ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={() => setQrOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <p className="muted small" style={{ marginBottom: '0.6rem' }}>{t('wd.scanQrHint')}</p>
+            <div id="qr-reader-box" ref={qrDiv} style={{ width: '100%', aspectRatio: '1 / 1', maxHeight: 280, overflow: 'hidden', borderRadius: 10 }} />
+          </div>
+        </div>
       )}
     </div>
   )
