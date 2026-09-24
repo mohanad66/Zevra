@@ -8,6 +8,13 @@ import { useI18n } from '../i18n'
 import { fmtCrypto, StatusBadge } from '../components/Format'
 import { ArrowDownToLine, QrCode, Camera, X } from 'lucide-react'
 
+const NETWORKS = [
+  { id: 'TRC20', label: 'USDT · TRC20', hint: 'Tron', enabled: true },
+  { id: 'POL', label: 'USDT · POL', hint: 'Polygon', enabled: true },
+  { id: 'ETH20', label: 'USDT · ETH20', hint: 'Ethereum', enabled: true },
+  { id: 'BEP20', label: 'USDT · BEP20', hint: 'BNB Chain', enabled: true },
+]
+
 export default function Withdraw() {
   const { apiError } = useAuth()
   const { toast } = useToast()
@@ -25,13 +32,6 @@ export default function Withdraw() {
   const qrDiv = useRef(null)
   const qrScan = useRef(null)
 
-  const NETWORKS = [
-    { id: 'TRC20', label: 'USDT · TRC20', hint: 'Tron', enabled: true },
-    { id: 'POL', label: 'USDT · POL', hint: 'Polygon', enabled: true },
-    { id: 'ETH20', label: 'USDT · ETH20', hint: 'Ethereum', enabled: true },
-    { id: 'BEP20', label: 'USDT · BEP20', hint: 'BNB Chain', enabled: true },
-  ]
-
   async function loadData() {
     const [dash, accs, wds] = await Promise.all([
       client.get('/dashboard/'),
@@ -39,18 +39,19 @@ export default function Withdraw() {
       client.get('/withdrawals/'),
     ])
     setSettings(dash.data.settings)
-    // The owner wants USDT to be the only withdrawal coin, so we only show
-    // USDT wallets here (the platform payout gateway settles USDT).
-    const usdt = (dash.data.wallets ?? []).filter(
-      (w) => String(w.coin.symbol).toUpperCase() === 'USDT'
+    const available = (dash.data.wallets ?? []).filter(
+      (w) => parseFloat(w.withdrawable_balance) > 0 || parseFloat(w.invested_balance) > 0
     )
-    setWallets(usdt)
+    setWallets(available)
     setAccounts(accs.data ?? [])
     setWithdrawals(wds.data ?? [])
-    const first = usdt[0]
+    const first =
+      available.find((w) => String(w.coin.symbol).toUpperCase() === 'USDT') || available[0]
     if (first) {
       setCoinId(first.coin.id)
-      if (NETWORKS.some((n) => n.id === first.coin.chain)) setNetwork(first.coin.chain)
+      const map = { ERC20: 'ETH20', POLYGON: 'POL' }
+      const chain = map[(first.coin.chain || '').toUpperCase()] || first.coin.chain
+      if ({ TRC20:1, ETH20:1, POL:1, BEP20:1, BASE:1, TON:1, SOL:1 }[chain]) setNetwork(chain)
     }
   }
 
@@ -88,6 +89,21 @@ export default function Withdraw() {
 
   const wallet = useMemo(() => wallets.find((w) => w.coin.id === coinId), [wallets, coinId])
   const feePct = settings?.withdraw_fee_percent ?? 1
+
+  // Networks available for the currently selected coin. USDT gets the four
+  // gateway-settled options; other coins fall back to their own chain.
+  const chainLabel = useMemo(() => {
+    const map = { ERC20: 'ETH20', POLYGON: 'POL', BEP20: 'BEP20', TRC20: 'TRC20', BASE: 'BASE', TON: 'TON', SOL: 'SOL' }
+    return map[(wallet?.coin.chain || '').toUpperCase()]
+  }, [wallet])
+  const networkOptions = useMemo(() => {
+    if (!wallet) return NETWORKS.filter((n) => n.enabled)
+    const opts = NETWORKS.filter((n) => n.enabled)
+    if (chainLabel && !opts.some((n) => n.id === chainLabel)) {
+      opts.push({ id: chainLabel, label: `${wallet.coin.symbol} · ${chainLabel}`, hint: '', enabled: true })
+    }
+    return opts
+  }, [wallet, chainLabel])
 
   async function submit(e) {
     e.preventDefault()
@@ -140,7 +156,11 @@ export default function Withdraw() {
           <select value={coinId ?? ''} onChange={(e) => {
             const c = wallets.find((w) => w.coin.id === Number(e.target.value))
             setCoinId(Number(e.target.value))
-            if (c && NETWORKS.some((n) => n.id === c.coin.chain)) setNetwork(c.coin.chain)
+            if (c) {
+              const map = { ERC20: 'ETH20', POLYGON: 'POL' }
+              const chain = map[(c.coin.chain || '').toUpperCase()] || c.coin.chain
+              if ({ TRC20:1, ETH20:1, POL:1, BEP20:1, BASE:1, TON:1, SOL:1 }[chain]) setNetwork(chain)
+            }
           }}>
             {wallets.map((w) => (
               <option key={w.coin.id} value={w.coin.id}>
@@ -180,7 +200,7 @@ export default function Withdraw() {
         <label>
           {t('wd.network')}
           <select value={network} onChange={(e) => setNetwork(e.target.value)}>
-            {NETWORKS.filter((n) => n.enabled).map((n) => (
+            {networkOptions.map((n) => (
               <option key={n.id} value={n.id}>{n.label}</option>
             ))}
           </select>
