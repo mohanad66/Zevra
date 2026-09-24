@@ -7,15 +7,19 @@ import { useI18n } from '../i18n'
 import { fmt } from '../components/Format'
 import { TrendingUp, CheckCircle2, Clipboard, Loader2 } from 'lucide-react'
 
-// Networks the customer can pay on. PayRam only deploys real deposit addresses
-// on Tron, Polygon, Ethereum, Base and Bitcoin, so every enabled choice must
-// match _PAYRAM_DEPOSIT_CODES in backend/api/services.py. BEP20 / SOL have no
-// PayRam deposit wallet yet, so they stay disabled ("coming soon").
+// Networks the customer can pay on. Every enabled choice must match
+// _PAYRAM_DEPOSIT_CODES in backend/api/services.py. PayRam currently only
+// deploys real deposit wallets on Tron, Polygon, Ethereum, Base and Bitcoin
+// (node codes TRX / POLYGON / ETH / BASE / BTC). BEP20 (BSC) and SOL are
+// enabled anyway per the owner's request even though this PayRam instance has
+// no BNB / Solana node — choosing them will surface the gateway error back to
+// the user, like a "coming soon" chip.
 const NETWORKS = [
   { id: 'TRC20', label: 'TRC20', hint: 'Tron', enabled: true },
   { id: 'POL', label: 'POL', hint: 'Polygon', enabled: true },
-  { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: false },
-  { id: 'SOL', label: 'SOL', hint: 'Solana', enabled: false },
+  { id: 'ERC20', label: 'ETH20', hint: 'Ethereum', enabled: true },
+  { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: true },
+  { id: 'SOL', label: 'SOL', hint: 'Solana', enabled: true },
 ]
 
 export default function Invest() {
@@ -36,7 +40,13 @@ export default function Invest() {
   useEffect(() => {
     client.get('/coins/').then((res) => {
       setCoins(res.data)
-      if (res.data.length) setCoinId(res.data[0].id)
+      // The owner wants USDT to be the only payment method ("remove the
+      // choices"), so always default to a USDT coin — not the first row in the
+      // list, which may be a non-USDT coin.
+      if (res.data.length) {
+        const usdt = res.data.find((c) => String(c.symbol).toUpperCase() === 'USDT') || res.data[0]
+        setCoinId(usdt.id)
+      }
     }).catch(() => {})
   }, [])
 
@@ -153,7 +163,7 @@ export default function Invest() {
       {phase === 'form' ? (
         <form className="card form" onSubmit={createOrder}>
           <div className="coin-picker">
-            {coins.map((c) => (
+            {coins.filter((c) => String(c.symbol).toUpperCase() === 'USDT').map((c) => (
               <button
                 type="button"
                 key={c.id}

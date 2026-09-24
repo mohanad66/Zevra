@@ -136,8 +136,15 @@ def _payram_error(payload, r):
     """Best-effort human-readable error message from a PayRam error response."""
     if isinstance(payload, dict):
         message = payload.get("message") or payload.get("error")
+        code = str(payload.get("code") or "")
         if message:
-            return str(message)[:300]
+            text = str(message)[:300]
+            if "BLOCKCHAIN_NODE_NOT_FOUND" in code or "not found" in text.lower():
+                text += (
+                    " Configure and enable this blockchain's node and deposit "
+                    "wallet in the PayRam dashboard first."
+                )
+            return text
     return r.text[:300]
 
 
@@ -269,6 +276,14 @@ _PAYRAM_DEPOSIT_CODES = {
     "ERC20": "ETH",
     "BASE": "BASE",
     "BTC": "BTC",
+    # BEP20 (BSC) and SOL are added per the owner's request even though PayRam
+    # does not currently deploy deposit wallets for those blockchains (its
+    # supported node codes are BTC / ETH / BASE / POLYGON / TRX only). If the
+    # PayRam instance lacks a BNB / Solana node, the Assign Deposit Address
+    # call will simply fail on those choices — same behaviour as a disabled,
+    # "coming soon" chip, with the error surfaced back to the user.
+    "BEP20": "BSC",
+    "SOL": "SOLANA",
 }
 
 # Currency code keys PayRam understands when creating payouts (native token
