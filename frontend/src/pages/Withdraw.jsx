@@ -72,7 +72,7 @@ export default function Withdraw() {
       }
       qrScan.current = null
     }
-  }, [qrOpen])
+  }, [qrOpen, apiError, t, toast])
 
   const wallet = useMemo(() => wallets.find((w) => w.coin.id === coinId), [wallets, coinId])
   const feePct = settings?.withdraw_fee_percent ?? 1
