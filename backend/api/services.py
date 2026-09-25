@@ -623,14 +623,18 @@ def _plisio_api_key():
 # enabled on this platform's coins, so one map serves both directions (invoice
 # ``currency`` and cash_out ``currency``).
 #
-# TRC20 is routed here while PayRam has no Tron deposit wallet yet: the whole
-# chain (deposits *and* payouts) must live on one provider, otherwise deposits
-# would land in Plisio while payouts drained PayRam. Remove "TRC20" from this
-# map once PayRam has a Tron deposit wallet + Tron hot wallet for the project.
+# Everything Plisio supports is routed here for deposits *and* payouts: the whole
+# chain must live on one provider, otherwise deposits would land in Plisio while
+# payouts drained PayRam. POLYGON is deliberately absent — Plisio has no Polygon
+# chain, so POL stays on PayRam and needs the project's EVM hot wallet.
+# Remove the Ethereum/Tron entries once PayRam has deposit wallets + hot wallets
+# for them.
 _PLISIO_NETWORKS = {
     "TRC20": "USDT_TRX",
     "BEP20": "USDT_BSC",
     "SOL": "USDT_SOL",
+    "ERC20": "USDT",
+    "ETH20": "USDT",
 }
 
 
@@ -763,9 +767,13 @@ def _create_plisio_payment(investment, order_ref):
             "message": "Plisio created the invoice but returned no txn_id or invoice_url.",
             **common,
         }
+    # ``wallet_hash`` / ``qr_code`` / ``amount`` are only returned when the shop
+    # has white-label processing enabled — that is what lets the checkout render
+    # the deposit address + QR in-page instead of bouncing to the hosted invoice.
     return {
         "status": "pending",
         "address": str(data.get("wallet_hash") or ""),
+        "qr_code": str(data.get("qr_code") or ""),
         "checkout_url": url,
         "pay_amount": str(data.get("amount") or investment.amount),
         "pay_currency": str(data.get("currency") or coin.symbol),

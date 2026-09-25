@@ -9,10 +9,10 @@ import { TrendingUp, CheckCircle2, Clipboard, Loader2, ShieldCheck } from 'lucid
 import { isKycRequiredError } from '../api/client'
 
 // Networks the customer can pay on. Every enabled choice must match
-// _PLISIO_NETWORKS (TRC20 -> USDT_TRX, BEP20 -> USDT_BSC, SOL -> USDT_SOL) or
-// _PAYRAM_DEPOSIT_CODES (POL, ERC20 -> Ethereum, BASE, BTC) in services.py;
-// the backend picks the provider from the label. PayRam has no BNB/Solana
-// deposit chain, which is why those go to Plisio.
+// _PLISIO_NETWORKS (TRC20 -> USDT_TRX, BEP20 -> USDT_BSC, SOL -> USDT_SOL,
+// ERC20 -> USDT) or _PAYRAM_DEPOSIT_CODES (POL -> POLYGON, BASE, BTC) in
+// services.py; the backend picks the provider from the label. PayRam has no
+// BNB/Solana deposit chain, which is why those go to Plisio.
 const NETWORKS = [
   { id: 'TRC20', label: 'TRC20', hint: 'Tron', enabled: true },
   { id: 'POL', label: 'POL', hint: 'Polygon', enabled: true },
@@ -252,10 +252,10 @@ export default function Invest() {
             </div>
           ) : null}
 
-          {payment.address ? (
+          {payment.qr_code || payment.address ? (
             <div style={{ textAlign: 'center', margin: '0 0 1rem' }}>
               <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payment.address)}`}
+                src={payment.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payment.address)}`}
                 alt={ar ? 'رمز QR لعنوان الدفع' : 'QR code for the deposit address'}
                 width={220}
                 height={220}
@@ -274,7 +274,7 @@ export default function Invest() {
             </label>
           ) : null}
 
-          {payment.payment_mode === 'provider' && payment.checkout_url ? (
+          {payment.payment_mode === 'provider' && payment.checkout_url && !payment.address ? (
             <a
               href={payment.checkout_url}
               target="_blank"
