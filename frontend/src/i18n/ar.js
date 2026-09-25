@@ -72,6 +72,12 @@ export const ar = {
   'auth.register.hint': 'أنشئ الحساب باستخدام بريدك الإلكتروني أو رقم هاتفك فقط — ويمكنك تسجيل الدخول بأي منهما.',
   'auth.register.needLogin': 'يرجى تقديم بريد إلكتروني أو رقم هاتف لإنشاء الحساب.',
   'auth.register.invited': 'لقد تمت دعوتك بالرمز',
+  'auth.contact.email': 'البريد الإلكتروني',
+  'auth.contact.phone': 'الهاتف',
+  'auth.email.label': 'البريد الإلكتروني',
+  'auth.phone.label': 'رقم الهاتف',
+  'auth.email.required': 'أدخل عنوان بريدك الإلكتروني.',
+  'auth.phone.required': 'أدخل رقم هاتفك.',
 
   // dashboard
   'dash.title': 'الرئيسية',

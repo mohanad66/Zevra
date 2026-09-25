@@ -313,6 +313,12 @@ tr:last-child td { border-bottom: none; }
 .auth-brand { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 6px; }
 .auth-brand .brand-mark { width: 52px; height: 52px; font-size: 26px; border-radius: 14px; }
 .auth-brand h1 { font-size: 22px; margin: 0; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+.seg-btn { border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 9px 10px; border-radius: 9px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.seg-btn:hover { color: var(--text); }
+.seg-btn.active { background: var(--brand); color: #fff; }
+.seg:has(.seg-btn) .link-btn { color: var(--brand); }
+.link-btn { border: 0; background: none; color: var(--brand); font: inherit; font-weight: 600; padding: 0; cursor: pointer; text-decoration: underline; }
 
 /* ---------- landing ---------- */
 .landing { min-height: 100vh; display: flex; flex-direction: column; }

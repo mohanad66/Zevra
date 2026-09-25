@@ -72,6 +72,12 @@ export const en = {
   'auth.register.hint': 'Create the account using your email or just your phone number — you can then log in with either.',
   'auth.register.needLogin': 'Provide an email address or a phone number to create an account.',
   'auth.register.invited': 'You were invited with code',
+  'auth.contact.email': 'Email',
+  'auth.contact.phone': 'Phone',
+  'auth.email.label': 'Email',
+  'auth.phone.label': 'Phone number',
+  'auth.email.required': 'Enter your email address.',
+  'auth.phone.required': 'Enter your phone number.',
 
   // dashboard
   'dash.title': 'Dashboard',

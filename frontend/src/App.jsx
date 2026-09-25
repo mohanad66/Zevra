@@ -9,8 +9,7 @@ import Layout from './components/Layout'
 import Landing from './pages/Landing'
 import { LoaderCircle } from 'lucide-react'
 
-const Login = lazy(() => import('./pages/Login'))
-const Register = lazy(() => import('./pages/Register'))
+const Auth = lazy(() => import('./pages/Auth'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const WalletDetail = lazy(() => import('./pages/WalletDetail'))
 const Market = lazy(() => import('./pages/Market'))
@@ -67,8 +66,8 @@ export default function App() {
               <Suspense fallback={<Loader />}>
                 <Routes>
                   <Route path="/" element={<PublicOnly><Landing /></PublicOnly>} />
-                  <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
-                  <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
+                  <Route path="/login" element={<PublicOnly><Auth initialMode="login" /></PublicOnly>} />
+                  <Route path="/register" element={<PublicOnly><Auth initialMode="register" /></PublicOnly>} />
                   <Route path="/terms" element={<Terms />} />
                   <Route path="/privacy" element={<Privacy />} />
                   <Route path="/kyc-policy" element={<KycPolicy />} />

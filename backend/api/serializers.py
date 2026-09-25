@@ -343,6 +343,33 @@ class WithdrawalInputSerializer(serializers.Serializer):
                 }
             )
 
+        address = (attrs.get("address") or "").strip()
+        if not address:
+            raise serializers.ValidationError(
+                {"address": tr("Wallet address is required.", self.context.get("request"))}
+            )
+        if net in {"TRC20", "TRON", "TRX"} and (len(address) != 34 or address[:2] != "T"):
+            raise serializers.ValidationError(
+                {
+                    "address": tr(
+                        "Invalid TRON (TRC20) address. It must start with 'T' and be 34 characters.",
+                        self.context.get("request"),
+                    )
+                }
+            )
+        if net in {"POL", "POLYGON", "ETH20", "ETH", "BEP20", "BSC", "BASE", "ERC20"} and not (
+            address.startswith(("0x", "0X")) and len(address) == 42
+        ):
+            raise serializers.ValidationError(
+                {
+                    "address": tr(
+                        "Invalid {net} address. It must be a 0x… address (42 characters).",
+                        self.context.get("request"),
+                        net=net,
+                    )
+                }
+            )
+
         amount = attrs["amount"]
         if amount <= 0:
             raise serializers.ValidationError(
