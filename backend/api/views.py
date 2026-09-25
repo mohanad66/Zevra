@@ -63,6 +63,8 @@ from api.services import (
     verify_payram_signature,
     verify_cryptomus_signature,
     handle_cryptomus_webhook,
+    verify_plisio_signature,
+    handle_plisio_webhook,
     verify_webhook_signature,
     send_platform_to_user,
     test_payram_connection,
@@ -548,6 +550,9 @@ class GatewayWebhookView(views.APIView):
             HMAC-SHA256 over the raw body with the webhook secret (legacy).
           * ``X-NowPayments-Sig``   – NOWPayments IPN: HMAC-SHA512 over the raw
             body (signed JSON string with keys sorted) using the IPN secret key.
+          * Plisio JSON callbacks carry ``verify_hash`` in the body: HMAC-SHA1
+            over JSON.stringify(payload minus verify_hash), signed with the
+            Plisio SECRET_KEY (see ``verify_plisio_signature``).
         """
         raw = request.body
         sig_payram = request.META.get("HTTP_X_PAYRAM_SIGNATURE", "")
@@ -564,7 +569,13 @@ class GatewayWebhookView(views.APIView):
         # Cryptomus signs the JSON body itself ("sign" field), not a header.
         is_cryptomus = isinstance(data, dict) and "sign" in data and not header_ok
         cryptomus_ok = is_cryptomus and verify_cryptomus_signature(data)
-        if not (header_ok or cryptomus_ok):
+        # Plisio JSON callbacks carry their own "verify_hash" field.
+        is_plisio = (
+            isinstance(data, dict) and "verify_hash" in data and not header_ok
+            and not cryptomus_ok
+        )
+        plisio_ok = is_plisio and verify_plisio_signature(data)
+        if not (header_ok or cryptomus_ok or plisio_ok):
             return response.Response(
                 {"detail": "Bad signature."}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -574,6 +585,8 @@ class GatewayWebhookView(views.APIView):
             )
         if cryptomus_ok:
             handled = handle_cryptomus_webhook(data)
+        elif plisio_ok:
+            handled = handle_plisio_webhook(data)
         else:
             event = str(data.get("event_type") or "").lower()
             if event.startswith("payout."):
@@ -864,6 +877,7 @@ class AdminPaymentSettingsView(views.APIView):
         token = PlatformSettings.get(
             PlatformSettings.S_PAYMENT_WEBHOOK_TOKEN, "dev-gateway-secret"
         )
+        plisio_api_key = PlatformSettings.get(PlatformSettings.S_PLISIO_API_KEY, "")
 
         def mask(v):
             v = str(v).strip()
@@ -917,6 +931,10 @@ class AdminPaymentSettingsView(views.APIView):
                 "test": env_state("test"),
                 "production": env_state("production"),
             },
+            "plisio": {
+                "api_key_masked": mask(plisio_api_key) if plisio_api_key else "",
+                "api_key_set": bool(plisio_api_key),
+            },
             "platform_wallets": [
                 {
                     "id": w.id,
@@ -959,6 +977,7 @@ class AdminPaymentSettingsView(views.APIView):
             ("payram_api_key_test", PlatformSettings.S_PAYRAM_API_KEY_TEST, "PayRam test project API key"),
             ("payram_base_url_production", PlatformSettings.S_PAYRAM_BASE_URL_PROD, "PayRam production BASE_URL (Site URL)"),
             ("payram_api_key_production", PlatformSettings.S_PAYRAM_API_KEY_PROD, "PayRam production project API key"),
+            ("plisio_api_key", PlatformSettings.S_PLISIO_API_KEY, "Plisio SECRET_KEY (API » API settings)"),
         ):
             val = (request.data.get(field_name) or "").strip()
             if field_name in request.data and val:

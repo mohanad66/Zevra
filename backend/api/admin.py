@@ -413,6 +413,7 @@ DEFAULT_PLATFORM_SETTINGS = [
     (PlatformSettings.S_PAYRAM_API_KEY_TEST, "", "PayRam test project API key (Project > API Keys)"),
     (PlatformSettings.S_PAYRAM_BASE_URL_PROD, "", "PayRam production BASE_URL — Settings > Site URL on the PayRam dashboard"),
     (PlatformSettings.S_PAYRAM_API_KEY_PROD, "", "PayRam production project API key (Project > API Keys)"),
+    (PlatformSettings.S_PLISIO_API_KEY, "", "Plisio SECRET_KEY (API » API settings) — powers automatic BEP20/SOL deposits and payouts"),
 ]
 
 admin.site.register(PriceSnapshot)

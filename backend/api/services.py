@@ -269,21 +269,15 @@ _PAYRAM_PAYMENT_NETWORKS = {
 # UI network label (what Invest.jsx sends in `source_address`) -> PayRam
 # blockchain code used by the Assign Deposit Address API. Only networks where
 # PayRam deploys a real deposit wallet are listed; unsupported choices are
-# rejected with a clear message.
+# rejected with a clear message. PayRam only supports TRX / ETH / BASE /
+# POLYGON / BTC — BNB Chain (BEP20) and Solana (SOL) have no PayRam deposit
+# chain, so they are intentionally not mapped here.
 _PAYRAM_DEPOSIT_CODES = {
     "TRC20": "TRX",
     "POL": "POLYGON",
     "ERC20": "ETH",
     "BASE": "BASE",
     "BTC": "BTC",
-    # BEP20 (BSC) and SOL are added per the owner's request even though PayRam
-    # does not currently deploy deposit wallets for those blockchains (its
-    # supported node codes are BTC / ETH / BASE / POLYGON / TRX only). If the
-    # PayRam instance lacks a BNB / Solana node, the Assign Deposit Address
-    # call will simply fail on those choices — same behaviour as a disabled,
-    # "coming soon" chip, with the error surfaced back to the user.
-    "BEP20": "BSC",
-    "SOL": "SOLANA",
 }
 
 # Currency code keys PayRam understands when creating payouts (native token
@@ -602,13 +596,341 @@ def _handle_cryptomus_payout_webhook(order_id, data):
     return False
 
 
+# ---------------------------------------------------------------------------
+# Plisio (automatic BEP20 / SOL deposits + payouts)
+# ---------------------------------------------------------------------------
+#
+# PayRam only deploys deposit wallets on Tron, Polygon, Ethereum, Base and
+# Bitcoin, so BEP20 (BSC) and SOL cannot go through it. Plisio powers those two
+# chains end-to-end with one SECRET_KEY (API » Api settings):
+#
+#   * Deposits:    GET https://api.plisio.net/api/v1/invoices/new  -> invoice_url
+#   * Deposit poll: GET /api/v1/operations/{txn_id}
+#   * Deposit webhook to /api/gateway/webhook/?json=true  (HMAC-SHA1 JSON callback)
+#   * Payouts:     GET https://api.plisio.net/api/v1/operations/withdraw -> op id
+#   * Payout poll:  GET /api/v1/operations/{op_id}
+#
+# All Plisio requests are GETs with an ``api_key`` query parameter.
+
+
+def _plisio_api_key():
+    return _provider_setting(
+        PlatformSettings.S_PLISIO_API_KEY, "PLISIO_API_KEY", ""
+    ).strip()
+
+
+# UI network label -> Plisio currency ID ("psys_cid" column). Only USDT is
+# enabled on this platform's coins, so one map serves both directions (invoice
+# ``currency`` and cash_out ``currency``).
+#
+# TRC20 is routed here while PayRam has no Tron deposit wallet yet: the whole
+# chain (deposits *and* payouts) must live on one provider, otherwise deposits
+# would land in Plisio while payouts drained PayRam. Remove "TRC20" from this
+# map once PayRam has a Tron deposit wallet + Tron hot wallet for the project.
+_PLISIO_NETWORKS = {
+    "TRC20": "USDT_TRX",
+    "BEP20": "USDT_BSC",
+    "SOL": "USDT_SOL",
+}
+
+
+def _plisio_get(endpoint, params, api_key=None):
+    """GET to the Plisio API. Raises ValueError on failure. Returns the ``data``
+    dict of a successful (``status: success``) response."""
+    if not api_key:
+        raise ValueError(
+            "Plisio is not configured. Set PLISIO_API_KEY in Admin > Payments "
+            "or in .env."
+        )
+    qs = dict(params or {})
+    qs["api_key"] = api_key
+    try:
+        r = requests.get(
+            f"https://api.plisio.net/api/v1{endpoint}", params=qs, timeout=30
+        )
+    except requests.RequestException as exc:
+        raise ValueError(f"Plisio unreachable: {exc}") from exc
+    try:
+        parsed = r.json()
+    except ValueError:
+        parsed = {}
+    if r.status_code >= 300 or str(parsed.get("status") or "").lower() != "success":
+        msg = ""
+        data = parsed.get("data")
+        if isinstance(data, dict):
+            msg = str(data.get("message") or "")
+            if not msg and data.get("name"):
+                msg = f"{data.get('name')}: {data.get('message', '')}".strip()
+        raise ValueError(
+            f"Plisio HTTP {r.status_code}: {msg or parsed.get('message') or r.text[:300]}"
+        )
+    return parsed.get("data") or {}
+
+
+def _plisio_tx_from_url(url):
+    """Extract a tx hash from a Plisio block-explorer URL (last path segment)."""
+    url = str(url or "").strip()
+    if not url or url in ("http:", "https:"):
+        return ""
+    parts = url.rstrip("/").split("/")
+    return parts[-1] if len(parts) > 1 else url
+
+
+def _create_plisio_payment(investment, order_ref):
+    """Create a Plisio invoice for a BEP20/SOL investment. Returns the checkout
+    payload the frontend renders (redirect to the Plisio hosted invoice)."""
+    coin = investment.coin
+    amount = float(investment.amount)
+    user = investment.user
+    net_label = (investment.source_address or "").strip().upper() or coin.chain
+    common = {
+        "coin_symbol": coin.symbol,
+        "chain": net_label,
+        "amount": investment.amount,
+        "payment_mode": "provider",
+        "order_ref": order_ref,
+        "gateway": "plisio",
+    }
+    key = _plisio_api_key()
+    if not key:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": "Plisio is not configured (API key).",
+            **common,
+        }
+    currency = _PLISIO_NETWORKS.get(net_label)
+    if not currency:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": f"{net_label} is not supported by Plisio. "
+            f"Choose one of: {', '.join(sorted(_PLISIO_NETWORKS))}.",
+            **common,
+        }
+    try:
+        amount_usd = _payram_usd_amount(coin, amount)
+    except ValueError as exc:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": str(exc),
+            **common,
+        }
+    if amount_usd <= 0:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": "Payment amount must be positive in USD.",
+            **common,
+        }
+    callback = _gateway_webhook_url()
+    if callback and "json=true" not in callback:
+        sep = "&" if "?" in callback else "?"
+        callback = f"{callback}{sep}json=true"
+    params = {
+        "source_currency": "USD",
+        "source_amount": f"{amount_usd:.2f}",
+        "order_number": order_ref,
+        "order_name": f"Investment {order_ref}",
+        "currency": currency,
+        "allowed_psys_cids": currency,
+        "email": user.email or f"user{user.pk}@miyartrading.com",
+        "expire_min": "30",
+        "callback_url": callback,
+    }
+    try:
+        data = _plisio_get("/invoices/new", params, key)
+    except ValueError as exc:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": str(exc),
+            **common,
+        }
+    txn_id = str(data.get("txn_id") or "")
+    url = str(data.get("invoice_url") or "")
+    if not txn_id or not url:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": "Plisio created the invoice but returned no txn_id or invoice_url.",
+            **common,
+        }
+    return {
+        "status": "pending",
+        "address": str(data.get("wallet_hash") or ""),
+        "checkout_url": url,
+        "pay_amount": str(data.get("amount") or investment.amount),
+        "pay_currency": str(data.get("currency") or coin.symbol),
+        "provider_order_id": txn_id,
+        "provider_token": txn_id,
+        "amount_usd": f"{amount_usd:.2f}",
+        **common,
+    }
+
+
+_PLISIO_PAYMENT_DONE = {"completed", "paid", "paid_over"}
+_PLISIO_PAYMENT_FAILED = {
+    "error",
+    "expired",
+    "cancelled",
+    "cancelled_duplicate",
+    "mismatch",
+}
+
+
+def _plisio_payment_status(txn_id):
+    """Poll a Plisio invoice by txn_id. Returns (state, tx) in the PayRam
+    vocabulary (FILLED / CANCELLED / PENDING)."""
+    key = _plisio_api_key()
+    data = _plisio_get(f"/operations/{txn_id}", {}, key)
+    status = str(data.get("status") or "").lower().replace(" ", "_")
+    tx = ""
+    tx_urls = data.get("tx_urls")
+    if isinstance(tx_urls, list) and tx_urls:
+        tx = _plisio_tx_from_url(tx_urls[0])
+    if not tx:
+        tx = _plisio_tx_from_url(data.get("tx_url") or data.get("txid") or "")
+    if status in _PLISIO_PAYMENT_DONE:
+        return "FILLED", tx
+    if status in _PLISIO_PAYMENT_FAILED:
+        return "CANCELLED", tx
+    return "PENDING", tx
+
+
+def _create_plisio_payout(coin, to_address, amount, network="", order_ref=None, user=None):
+    """Create a Plisio withdrawal. Returns its Plisio operation id."""
+    key = _plisio_api_key()
+    if not key:
+        raise ValueError("Plisio payout is not configured (API key).")
+    net = (network or coin.chain or "").upper()
+    currency = _PLISIO_NETWORKS.get(net)
+    if not currency:
+        raise ValueError(
+            f"Plisio does not support payouts on {net}. "
+            f"Supported: {', '.join(_PLISIO_NETWORKS)}."
+        )
+    params = {
+        "currency": currency,
+        "type": "cash_out",
+        "to": str(to_address).strip(),
+        "amount": _amount_str(coin, amount),
+    }
+    try:
+        data = _plisio_get("/operations/withdraw", params, key)
+    except ValueError as exc:
+        raise ValueError(f"Plisio withdrawal failed: {exc}") from exc
+    pid = str(data.get("id") or "")
+    if not pid:
+        raise ValueError("Plisio created the payout but returned no operation id.")
+    return pid
+
+
+def _plisio_payout_status(op_id):
+    """Poll a Plisio withdrawal by operation id. Returns (status, tx_hash) in
+    the PayRam vocabulary (SENT / FAILED / PROCESSING)."""
+    key = _plisio_api_key()
+    data = _plisio_get(f"/operations/{op_id}", {}, key)
+    status = str(data.get("status") or "").lower().replace(" ", "_")
+    tx_hash = _plisio_tx_from_url(data.get("tx_url") or "")
+    tx_urls = data.get("tx_urls")
+    if isinstance(tx_urls, list) and tx_urls:
+        tx_hash = _plisio_tx_from_url(tx_urls[0])
+    if status in ("completed", "success", "done", "sent"):
+        return "SENT", tx_hash
+    if status in ("error", "failed"):
+        return "FAILED", tx_hash
+    return "PROCESSING", tx_hash
+
+
+def verify_plisio_signature(data):
+    """Verify a Plisio JSON callback (``callback_url?json=true``).
+
+    Per Plisio's Node example: HMAC-SHA1 (hex) keyed by the SECRET_KEY over
+    ``JSON.stringify(callback payload without verify_hash)`` preserving the
+    original key order.
+    """
+    if not isinstance(data, dict):
+        return False
+    verify_hash = str(data.get("verify_hash") or "").strip()
+    if not verify_hash:
+        return False
+    key = _plisio_api_key()
+    if not key:
+        return False
+    body = {k: v for k, v in data.items() if k != "verify_hash"}
+    payload = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+    expected = hmac.new(key.encode(), payload.encode(), hashlib.sha1).hexdigest()
+    return hmac.compare_digest(expected, verify_hash)
+
+
+_PLISIO_WEBHOOK_DONE = {"completed", "paid", "paid_over"}
+
+
+def handle_plisio_webhook(data):
+    """Apply a verified Plisio invoice callback.
+
+    Payload key fields: ``order_number`` (our order_ref), ``status``
+    (completed / expired / cancelled / error / pending / new), ``tx_urls``.
+    """
+    from api.models import PaymentOrder
+
+    order_ref = str(data.get("order_number") or "").strip()
+    if not order_ref:
+        return False
+    order = PaymentOrder.objects.filter(order_ref=order_ref).first()
+    if order is None:
+        return False
+    status = str(data.get("status") or "").lower().replace(" ", "_")
+    tx = ""
+    tx_urls = data.get("tx_urls")
+    if isinstance(tx_urls, list) and tx_urls:
+        tx = _plisio_tx_from_url(tx_urls[0])
+    if status in _PLISIO_WEBHOOK_DONE:
+        if order.status == PaymentOrder.STATUS_PAID:
+            return False
+        order.mark_paid(tx)
+        order.investment.confirm()
+        return True
+    if status in _PLISIO_PAYMENT_FAILED:
+        if order.status != PaymentOrder.STATUS_PAID:
+            order.status = PaymentOrder.STATUS_FAILED
+            order.save(update_fields=["status", "updated_at"])
+        return True
+    return False
+
+
+def _payment_gateway(order):
+    """Which provider owns a payment order, inferred from its chain label."""
+    net = (order.chain or "").strip().upper()
+    if net in _PLISIO_NETWORKS:
+        return "plisio"
+    if net in _PAYRAM_DEPOSIT_CODES:
+        return "payram"
+    return ""
+
+
+def _payout_gateway(net):
+    """Which provider owns a payout/withdrawal, inferred from its chain label."""
+    net = (net or "").strip().upper()
+    if net in _PLISIO_NETWORKS:
+        return "plisio"
+    return "payram"
+
+
 _PAYRAM_PAYOUT_CHAINS = {
     "TRC20": "TRX",
     "ERC20": "ETH",
     "ETH20": "ETH",
     "POL": "POLYGON",
     "POLYGON": "POLYGON",
-    "BEP20": "BSC",
     "BASE": "BASE",
 }
 
@@ -651,6 +973,9 @@ def send_platform_to_user(coin, to_address, amount, network="", order_ref=None, 
     if mode == "manual":
         return ""
     if mode == "provider":
+        net = (network or coin.chain or "").upper()
+        if net in _PLISIO_NETWORKS:
+            return _create_plisio_payout(coin, to_address, amount, net, order_ref, user)
         return _create_payram_payout(coin, to_address, amount, order_ref, user, network)
     # simulate
     return _simulated_hash("send")
@@ -733,6 +1058,9 @@ def create_payment_order(investment):
         return {"order_ref": ref, "status": "manual", "address": "", "checkout_url": "", **common}
 
     if mode == "provider":
+        net_label = (investment.source_address or "").strip().upper() or coin.chain
+        if net_label in _PLISIO_NETWORKS:
+            return _create_plisio_payment(investment, ref)
         return _create_payram_payment(investment, ref)
 
     # simulate: show the platform's deposit address and confirm on "I paid".
@@ -941,15 +1269,22 @@ def confirm_payment(order_ref):
 
     if mode == "provider":
         try:
-            state, txid = _payram_payment_status(order.provider_order_id or order.order_ref)
+            if _payment_gateway(order) == "plisio":
+                state, txid = _plisio_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
+            else:
+                state, txid = _payram_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
         except ValueError as exc:
             return False, "", f"Gateway check failed: {exc}"
         result = _apply_payram_payment_status(order, state, txid)
         if result == "paid":
             return True, order.tx_hash, "paid"
         if result == "failed":
-            return False, "", f"Payment {state} on PayRam."
-        return False, "", f"Payment still {state or 'unknown'} on PayRam."
+            return False, "", f"Payment {state} on the gateway."
+        return False, "", f"Payment still {state or 'unknown'} on the gateway."
 
     # simulate
     tx = _simulated_hash("receive")
@@ -988,7 +1323,14 @@ def payment_order_status(order_ref):
 
     if _mode() == "provider" and order.provider_order_id:
         try:
-            state, txid = _payram_payment_status(order.provider_order_id or order.order_ref)
+            if _payment_gateway(order) == "plisio":
+                state, txid = _plisio_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
+            else:
+                state, txid = _payram_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
         except ValueError:
             state, txid = None, ""
         if state:
@@ -1294,11 +1636,12 @@ def test_payram_connection():
 
 
 def reconcile_gateway():
-    """Finalize outstanding PayRam orders by polling the API.
+    """Finalize outstanding gateway orders by polling the APIs.
 
-    - Confirms pending investments whose PayRam payment reached a filled state.
-    - Finalizes PROCESSING withdrawals/payouts whose PayRam payout reached a
-      terminal state (completed or failed/refunded).
+    - Confirms pending investments whose PayRam/Plisio payment reached a filled
+      state.
+    - Finalizes PROCESSING withdrawals/payouts whose PayRam/Plisio payout
+      reached a terminal state (completed or failed/refunded).
     Returns (investments_confirmed, transfers_finalized) counts.
     """
     from api.models import PaymentOrder, Payout, Withdrawal
@@ -1306,7 +1649,7 @@ def reconcile_gateway():
     if _mode() != "provider":
         return 0, 0
     _, base, key = _payram_active()
-    if not base or not key:
+    if (not base or not key) and not _plisio_api_key():
         return 0, 0
 
     paid_orders = 0
@@ -1315,7 +1658,14 @@ def reconcile_gateway():
     )
     for order in orders:
         try:
-            state, txid = _payram_payment_status(order.provider_order_id or order.order_ref)
+            if _payment_gateway(order) == "plisio":
+                state, txid = _plisio_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
+            else:
+                state, txid = _payram_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
         except ValueError:
             continue
         if _apply_payram_payment_status(order, state, txid) == "paid":
@@ -1326,7 +1676,10 @@ def reconcile_gateway():
         status=Withdrawal.STATUS_PROCESSING
     ).exclude(provider_id="").select_related("coin", "user"):
         try:
-            status, txid = _payram_payout_status(wd.provider_id)
+            if _payout_gateway(wd.network) == "plisio":
+                status, txid = _plisio_payout_status(wd.provider_id)
+            else:
+                status, txid = _payram_payout_status(wd.provider_id)
         except ValueError:
             continue
         if status in _PAYRAM_PAYOUT_DONE:
@@ -1342,7 +1695,7 @@ def reconcile_gateway():
                 wallet.withdrawable_balance += wd.amount
                 wallet.save(update_fields=["withdrawable_balance", "updated_at"])
                 wd.status = Withdrawal.STATUS_FAILED
-                wd.reject_reason = f"PayRam payout {status.lower()}."
+                wd.reject_reason = f"Gateway payout {status.lower()}."
                 wd.save(update_fields=["status", "reject_reason", "updated_at"])
                 transfers += 1
 
@@ -1350,7 +1703,10 @@ def reconcile_gateway():
         status=Payout.STATUS_PROCESSING
     ).exclude(provider_id="").select_related("coin"):
         try:
-            status, txid = _payram_payout_status(po.provider_id)
+            if _payout_gateway(po.coin.chain) == "plisio":
+                status, txid = _plisio_payout_status(po.provider_id)
+            else:
+                status, txid = _payram_payout_status(po.provider_id)
         except ValueError:
             continue
         if status in _PAYRAM_PAYOUT_DONE:
@@ -1361,7 +1717,7 @@ def reconcile_gateway():
         elif status in _PAYRAM_PAYOUT_FAILED:
             if po.status != Payout.STATUS_COMPLETED:
                 po.status = Payout.STATUS_FAILED
-                po.note = f"{po.note}\nPayRam payout {status.lower()}.".strip()
+                po.note = f"{po.note}\nGateway payout {status.lower()}.".strip()
                 po.save(update_fields=["status", "note", "updated_at"])
                 transfers += 1
 

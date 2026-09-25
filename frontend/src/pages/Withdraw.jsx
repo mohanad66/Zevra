@@ -14,6 +14,7 @@ const NETWORKS = [
   { id: 'POL', label: 'USDT · POL', hint: 'Polygon', enabled: true },
   { id: 'ETH20', label: 'USDT · ETH20', hint: 'Ethereum', enabled: true },
   { id: 'BEP20', label: 'USDT · BEP20', hint: 'BNB Chain', enabled: true },
+  { id: 'SOL', label: 'USDT · SOL', hint: 'Solana', enabled: true },
 ]
 
 export default function Withdraw() {

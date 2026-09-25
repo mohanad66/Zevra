@@ -9,12 +9,10 @@ import { TrendingUp, CheckCircle2, Clipboard, Loader2, ShieldCheck } from 'lucid
 import { isKycRequiredError } from '../api/client'
 
 // Networks the customer can pay on. Every enabled choice must match
-// _PAYRAM_DEPOSIT_CODES in backend/api/services.py. PayRam currently only
-// deploys real deposit wallets on Tron, Polygon, Ethereum, Base and Bitcoin
-// (node codes TRX / POLYGON / ETH / BASE / BTC). BEP20 (BSC) and SOL are
-// enabled anyway per the owner's request even though this PayRam instance has
-// no BNB / Solana node — choosing them will surface the gateway error back to
-// the user, like a "coming soon" chip.
+// _PLISIO_NETWORKS (TRC20 -> USDT_TRX, BEP20 -> USDT_BSC, SOL -> USDT_SOL) or
+// _PAYRAM_DEPOSIT_CODES (POL, ERC20 -> Ethereum, BASE, BTC) in services.py;
+// the backend picks the provider from the label. PayRam has no BNB/Solana
+// deposit chain, which is why those go to Plisio.
 const NETWORKS = [
   { id: 'TRC20', label: 'TRC20', hint: 'Tron', enabled: true },
   { id: 'POL', label: 'POL', hint: 'Polygon', enabled: true },
@@ -100,10 +98,10 @@ export default function Invest() {
     } finally { setBusy(false) }
   }
 
-  // Provider checkout: PayRam watches the deposit address and confirms the
-  // payment on its side. We poll our backend so the user stays on this page —
-  // "checking" until PayRam reports the order filled, then we switch to the
-  // confirmed screen automatically.
+  // Provider checkout: the gateway (PayRam deposit address / Plisio invoice)
+  // confirms the payment on its side. We poll our backend so the user stays on
+  // this page — "checking" until the gateway reports the order filled, then we
+  // switch to the confirmed screen automatically.
   useEffect(() => {
     if (phase !== 'checkout' || payment?.payment_mode !== 'provider' || !payment?.order_ref) return
     let active = true
@@ -240,7 +238,7 @@ export default function Invest() {
       ) : phase === 'checkout' ? (
         <div className="card form checkout-box">
           <h3>{t('invest.completePayment')}</h3>
-          <p className="small muted">{t('invest.completeHint')}</p>
+          <p className="small muted">{payment.address ? t('invest.completeHint') : t('invest.gatewayHint')}</p>
 
           <div className="checkout-amount">
             <span className="checkout-amt-value">{fmt(payment.pay_amount ?? payment.amount)}</span>
@@ -274,6 +272,18 @@ export default function Invest() {
                 <button type="button" className="icon-btn" title={t('common.copy')} onClick={() => copy(payment.address)}><Clipboard size={16} /></button>
               </div>
             </label>
+          ) : null}
+
+          {payment.payment_mode === 'provider' && payment.checkout_url ? (
+            <a
+              href={payment.checkout_url}
+              target="_blank"
+              rel="noreferrer"
+              className="btn primary lg block"
+              style={{ marginTop: '1rem' }}
+            >
+              {t('invest.openGateway')} ↗
+            </a>
           ) : null}
 
           {payment.payment_mode === 'provider' ? (
