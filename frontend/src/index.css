@@ -492,5 +492,18 @@ html[dir='rtl'] .topbar-right { flex-direction: row-reverse; }
 html[dir='rtl'] .center { text-align: center; }
 html[dir='rtl'] .hero-copy { text-align: right }
 html[dir='rtl'] .landing-header .landing-cta { flex-direction: row-reverse; }
+
+/* ---------- small screens ---------- */
+@media (max-width: 450px) {
+  .notif-panel {
+    position: fixed;
+    top: 58px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: calc(100vw - 24px);
+  }
+  html[dir='rtl'] .notif-panel { left: 50%; right: auto; }
+}
 html[dir='rtl'] .footer { flex-direction: row-reverse; }
 html[dir='rtl'] .back-link, html[dir='rtl'] .legal-body ul { text-align: right; }
