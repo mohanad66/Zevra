@@ -66,7 +66,7 @@ export default function Auth({ initialMode = 'login' }) {
           </h1>
         </div>
 
-        <div className="seg">
+        {/* <div className="seg">
           <button
             type="button"
             className={`seg-btn${mode === 'login' ? ' active' : ''}`}
@@ -81,7 +81,7 @@ export default function Auth({ initialMode = 'login' }) {
           >
             {t('auth.register.button')}
           </button>
-        </div>
+        </div> */}
 
         {mode === 'register' && params.get('invite') && (
           <div className="notice">
@@ -127,7 +127,6 @@ export default function Auth({ initialMode = 'login' }) {
               value={form.email}
               onChange={v('email')}
               autoComplete="email"
-              placeholder="you@example.com"
             />
           </label>
         ) : (
@@ -138,22 +137,19 @@ export default function Auth({ initialMode = 'login' }) {
               value={form.phone}
               onChange={v('phone')}
               autoComplete="tel"
-              placeholder="+1 555 000 1234"
             />
           </label>
         )}
-
+{/* <label>
+              <span className="opt">{t('auth.register.email')}</span>
+              <input type="email" value={form.email} onChange={v('email')} autoComplete="email" />
+            </label> */}
         {mode === 'register' && contact === 'phone' ? (
-          <div className="row2">
             <label>
               <span className="opt">{t('auth.register.inviteCode')}</span>
               <input value={form.invite_code} onChange={v('invite_code')} />
             </label>
-            <label>
-              <span className="opt">{t('auth.register.email')}</span>
-              <input type="email" value={form.email} onChange={v('email')} autoComplete="email" />
-            </label>
-          </div>
+            
         ) : mode === 'register' ? (
           <label>
             <span className="opt">{t('auth.register.inviteCode')}</span>

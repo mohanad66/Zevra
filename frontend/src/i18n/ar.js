@@ -42,7 +42,7 @@ export const ar = {
 
   // auth
   'auth.welcome.title': 'مرحباً بك في معيار للتداول و الإستثمار',
-  'auth.login.title': 'تسجيل الدخول إلى معيار للتداول و الإستثمار',
+  'auth.login.title': 'تسجيل الدخول إلى معيار  للإستثمار',
   'auth.login.emailOrPhone': 'البريد الإلكتروني أو الهاتف',
   'auth.login.password': 'كلمة المرور',
   'auth.login.button': 'تسجيل الدخول',
