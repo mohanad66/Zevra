@@ -358,6 +358,8 @@ tr:last-child td { border-bottom: none; }
 .toast-error { border-color: rgba(239, 68, 68, 0.5); color: var(--danger); }
 .toast-info { border-color: rgba(206, 167, 77, 0.5); color: var(--brand); }
 .toast span { color: var(--text); font-size: 14px; }
+.toast-action { border-style: dashed; }
+.toast-action .toast-arrow { margin-inline-start: auto; flex-shrink: 0; color: var(--muted); }
 
 /* ---------- loader ---------- */
 .loader { min-height: 60vh; display: grid; place-items: center; place-content: center; gap: 10px; color: var(--muted); }

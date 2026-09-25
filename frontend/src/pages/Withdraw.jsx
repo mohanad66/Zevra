@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Html5Qrcode } from 'html5-qrcode'
 import { client } from '../api/client'
+import { isKycRequiredError } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
@@ -18,6 +19,7 @@ const NETWORKS = [
 export default function Withdraw() {
   const { apiError } = useAuth()
   const { toast } = useToast()
+  const navigate = useNavigate()
   const { t } = useI18n()
   const [settings, setSettings] = useState(null)
   const [wallets, setWallets] = useState([])
@@ -120,7 +122,8 @@ export default function Withdraw() {
       setAmount('')
       await loadData()
     } catch (err) {
-      toast(apiError(err), 'error')
+      const msg = apiError(err)
+      toast(msg, 'error', 5000, isKycRequiredError(err) ? () => navigate('/profile', { state: { kyc: true } }) : undefined)
     } finally {
       setBusy(false)
     }

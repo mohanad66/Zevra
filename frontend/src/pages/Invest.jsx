@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmt } from '../components/Format'
-import { TrendingUp, CheckCircle2, Clipboard, Loader2 } from 'lucide-react'
+import { TrendingUp, CheckCircle2, Clipboard, Loader2, ShieldCheck } from 'lucide-react'
+import { isKycRequiredError } from '../api/client'
 
 // Networks the customer can pay on. Every enabled choice must match
 // _PAYRAM_DEPOSIT_CODES in backend/api/services.py. PayRam currently only
@@ -25,6 +26,7 @@ const NETWORKS = [
 export default function Invest() {
   const { apiError } = useAuth()
   const { toast } = useToast()
+  const navigate = useNavigate()
   const { t, lang } = useI18n()
   const [searchParams] = useSearchParams()
   const [coins, setCoins] = useState([])
@@ -81,7 +83,8 @@ export default function Invest() {
       setPhase('checkout')
       toast(res.data.message, 'success')
     } catch (err) {
-      toast(apiError(err), 'error')
+      const msg = apiError(err)
+      toast(msg, 'error', 5000, isKycRequiredError(err) ? () => navigate('/profile', { state: { kyc: true } }) : undefined)
     } finally { setBusy(false) }
   }
 

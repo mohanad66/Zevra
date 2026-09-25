@@ -88,6 +88,31 @@ const GENERIC_ERRORS = {
   },
 }
 
+export function isKycRequiredError(error) {
+  const data = error?.response?.data
+  if (data && typeof data === 'object') {
+    const flat = []
+    const walk = (obj) => {
+      for (const key of Object.keys(obj)) {
+        const val = obj[key]
+        if (Array.isArray(val)) {
+          val.forEach((v) => {
+            if (typeof v === 'string') flat.push(v)
+            else if (v && typeof v === 'object') walk(v)
+          })
+        } else if (typeof val === 'object' && val !== null) {
+          walk(val)
+        } else if (val != null) {
+          flat.push(String(val))
+        }
+      }
+    }
+    walk(data)
+    return flat.some((m) => /KYC/i.test(m))
+  }
+  return false
+}
+
 export function apiError(error, fallback) {
   const lang = getStoredLang() === 'ar' ? 'ar' : 'en'
   const msgs = GENERIC_ERRORS[lang]

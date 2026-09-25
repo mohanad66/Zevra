@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
@@ -9,6 +10,8 @@ export default function Profile() {
   const { user, refreshUser, logout, apiError } = useAuth()
   const { toast } = useToast()
   const { t } = useI18n()
+  const location = useLocation()
+  const kycRef = useRef(null)
   const [profile, setProfile] = useState({ email: '', first_name: '', last_name: '', phone: '' })
   const [avatar, setAvatar] = useState(null)
   const [pwd, setPwd] = useState({ old_password: '', new_password: '' })
@@ -32,6 +35,12 @@ export default function Profile() {
   }
 
   useEffect(() => { load().catch(() => {}) }, [])
+
+  useEffect(() => {
+    if (location.state?.kyc && kycRef.current) {
+      kycRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [location.state, kyc.status])
 
   useEffect(() => {
     if (user) {
@@ -204,7 +213,7 @@ export default function Profile() {
         </form>
       </div>
 
-      <div className="card form">
+      <div className="card form" ref={kycRef}>
         <h3><ShieldCheck size={18} /> {t('pf.kyc.title')}</h3>
         <div className="kyc-status">
           <span className={`pill pill-${kycBadge}`}>
