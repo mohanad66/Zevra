@@ -8,6 +8,8 @@ backend/staticfiles/
 backend/media/
 backend/.server.pid
 *.log
+__pycache__/
+*.pyc
 
 # secrets
 .env

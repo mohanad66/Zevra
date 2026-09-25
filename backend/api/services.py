@@ -48,7 +48,7 @@ from decimal import Decimal
 import requests
 from django.utils import timezone
 
-from api.models import PlatformSettings
+from api.models import PaymentOrder, PlatformSettings
 
 _PAYRAM_ENVS = ("test", "production")
 
