@@ -15,6 +15,15 @@ __pycache__/
 .env
 .env.*
 !.env.docker.example
+# Capacitor build config. Tracked deliberately: it holds no secrets, only the
+# public API origin, and a store build must never silently ship a LAN address.
+# If you ever add a secret here, remove this exception.
+!.env.mobile
+
+# android release signing (never commit keys or their passwords)
+frontend/android/keystore.properties
+frontend/android/*.jks
+frontend/android/*.keystore
 
 # os
 .DS_Store

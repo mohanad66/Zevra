@@ -9,7 +9,7 @@ from django.db import models, transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
-VALID_NETWORKS = ["TRC20", "ERC20", "BEP20", "BEP2", "SOL", "TON"]
+VALID_NETWORKS = ["TRC20", "ERC20", "BEP20", "BEP2", "TON"]
 
 
 class UserManager(DjangoUserManager):

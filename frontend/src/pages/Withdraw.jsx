@@ -9,9 +9,9 @@ import { useI18n } from '../i18n'
 import { fmtCrypto, StatusBadge } from '../components/Format'
 import { ArrowDownToLine, QrCode, Camera, X } from 'lucide-react'
 
-// TRC20 / BEP20 / SOL / ETH20 withdrawals are created through Plisio (see
+// TRC20 / BEP20 / ETH20 withdrawals are created through Plisio (see
 // _PLISIO_NETWORKS in backend/api/services.py) and need a small native balance
-// on Plisio for gas (TRX / BNB / SOL). POL is hidden while PayRam has no hot
+// on Plisio for gas (TRX / BNB / ETH). POL is hidden while PayRam has no hot
 // wallet assigned to the project — Plisio has no Polygon chain, so POL payouts
 // can only run on PayRam. Re-enable it once the EVM hot wallet is assigned.
 const NETWORKS = [
@@ -19,7 +19,6 @@ const NETWORKS = [
   { id: 'POL', label: 'USDT · POL', hint: 'Polygon', enabled: false },
   { id: 'ETH20', label: 'USDT · ETH20', hint: 'Ethereum', enabled: true },
   { id: 'BEP20', label: 'USDT · BEP20', hint: 'BNB Chain', enabled: true },
-  { id: 'SOL', label: 'USDT · SOL', hint: 'Solana', enabled: true },
 ]
 
 export default function Withdraw() {
@@ -60,7 +59,7 @@ export default function Withdraw() {
       setCoinId(first.coin.id)
       const map = { ERC20: 'ETH20', POLYGON: 'POL' }
       const chain = map[(first.coin.chain || '').toUpperCase()] || first.coin.chain
-      if ({ TRC20:1, ETH20:1, POL:1, BEP20:1, BASE:1, TON:1, SOL:1 }[chain]) setNetwork(chain)
+      if ({ TRC20:1, ETH20:1, POL:1, BEP20:1, BASE:1, TON:1 }[chain]) setNetwork(chain)
     }
   }
 
@@ -102,7 +101,7 @@ export default function Withdraw() {
   // Networks available for the currently selected coin. USDT gets the four
   // gateway-settled options; other coins fall back to their own chain.
   const chainLabel = useMemo(() => {
-    const map = { ERC20: 'ETH20', POLYGON: 'POL', BEP20: 'BEP20', TRC20: 'TRC20', BASE: 'BASE', TON: 'TON', SOL: 'SOL' }
+    const map = { ERC20: 'ETH20', POLYGON: 'POL', BEP20: 'BEP20', TRC20: 'TRC20', BASE: 'BASE', TON: 'TON' }
     return map[(wallet?.coin.chain || '').toUpperCase()]
   }, [wallet])
   const networkOptions = useMemo(() => {
@@ -169,7 +168,7 @@ export default function Withdraw() {
             if (c) {
               const map = { ERC20: 'ETH20', POLYGON: 'POL' }
               const chain = map[(c.coin.chain || '').toUpperCase()] || c.coin.chain
-              if ({ TRC20:1, ETH20:1, POL:1, BEP20:1, BASE:1, TON:1, SOL:1 }[chain]) setNetwork(chain)
+              if ({ TRC20:1, ETH20:1, POL:1, BEP20:1, BASE:1, TON:1 }[chain]) setNetwork(chain)
             }
           }}>
             {wallets.map((w) => (

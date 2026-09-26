@@ -9,16 +9,15 @@ import { TrendingUp, CheckCircle2, Clipboard, Loader2, ShieldCheck } from 'lucid
 import { isKycRequiredError } from '../api/client'
 
 // Networks the customer can pay on. Every enabled choice must match
-// _PLISIO_NETWORKS (TRC20 -> USDT_TRX, BEP20 -> USDT_BSC, SOL -> USDT_SOL,
-// ERC20 -> USDT) or _PAYRAM_DEPOSIT_CODES (POL -> POLYGON, BASE, BTC) in
-// services.py; the backend picks the provider from the label. PayRam has no
-// BNB/Solana deposit chain, which is why those go to Plisio.
+// _PLISIO_NETWORKS (TRC20 -> USDT_TRX, BEP20 -> USDT_BSC, ERC20 -> USDT) or
+// _PAYRAM_DEPOSIT_CODES (POL -> POLYGON, BASE, BTC) in services.py; the backend
+// picks the provider from the label. PayRam has no BNB deposit chain, which is
+// why BEP20 goes to Plisio.
 const NETWORKS = [
   { id: 'TRC20', label: 'TRC20', hint: 'Tron', enabled: true },
   { id: 'POL', label: 'POL', hint: 'Polygon', enabled: true },
   { id: 'ERC20', label: 'ETH20', hint: 'Ethereum', enabled: true },
   { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: true },
-  { id: 'SOL', label: 'SOL', hint: 'Solana', enabled: true },
 ]
 
 export default function Invest() {

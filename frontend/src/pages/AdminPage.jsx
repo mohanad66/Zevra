@@ -835,7 +835,7 @@ export default function AdminPage() {
                 <label>
                   {t('admin.coins.chain')}
                   <select name="chain" value={coinForm.chain} onChange={cf}>
-                    {['TRC20', 'ERC20', 'BEP20', 'BEP2', 'SOL', 'TON'].map((n) => <option key={n} value={n}>{n}</option>)}
+                    {['TRC20', 'ERC20', 'BEP20', 'BEP2', 'TON'].map((n) => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </label>
                 <label>

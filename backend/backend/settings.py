@@ -197,6 +197,13 @@ CORS_ALLOWED_ORIGINS = [
     if o.strip()
 ]
 CORS_ALLOW_ALL_ORIGINS = os.environ.get("CORS_ALLOW_ALL_ORIGINS", "1" if DEBUG else "0") == "1"
+# The Capacitor Android WebView serves the bundled app from https://localhost
+# (androidScheme is https). That origin is not configurable per deployment, so it
+# is appended here rather than left to the env var — otherwise every API call
+# from the packaged app fails CORS in production.
+for _cap_origin in ("https://localhost", "capacitor://localhost"):
+    if _cap_origin not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(_cap_origin)
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     "accept",

@@ -270,8 +270,8 @@ _PAYRAM_PAYMENT_NETWORKS = {
 # blockchain code used by the Assign Deposit Address API. Only networks where
 # PayRam deploys a real deposit wallet are listed; unsupported choices are
 # rejected with a clear message. PayRam only supports TRX / ETH / BASE /
-# POLYGON / BTC — BNB Chain (BEP20) and Solana (SOL) have no PayRam deposit
-# chain, so they are intentionally not mapped here.
+# POLYGON / BTC — BNB Chain (BEP20) has no PayRam deposit chain, so it is
+# intentionally not mapped here.
 _PAYRAM_DEPOSIT_CODES = {
     "TRC20": "TRX",
     "POL": "POLYGON",
@@ -330,7 +330,6 @@ _CRYPTOMUS_NETWORKS = {
     "ERC20": "ETH",
     "BEP20": "BSC",
     "POL": "POLYGON",
-    "SOL": "SOL",
 }
 
 
@@ -597,12 +596,12 @@ def _handle_cryptomus_payout_webhook(order_id, data):
 
 
 # ---------------------------------------------------------------------------
-# Plisio (automatic BEP20 / SOL deposits + payouts)
+# Plisio (automatic BEP20 deposits + payouts)
 # ---------------------------------------------------------------------------
 #
 # PayRam only deploys deposit wallets on Tron, Polygon, Ethereum, Base and
-# Bitcoin, so BEP20 (BSC) and SOL cannot go through it. Plisio powers those two
-# chains end-to-end with one SECRET_KEY (API » Api settings):
+# Bitcoin, so BEP20 (BSC) cannot go through it. Plisio powers that chain
+# end-to-end with one SECRET_KEY (API » Api settings):
 #
 #   * Deposits:    GET https://api.plisio.net/api/v1/invoices/new  -> invoice_url
 #   * Deposit poll: GET /api/v1/operations/{txn_id}
@@ -632,7 +631,6 @@ def _plisio_api_key():
 _PLISIO_NETWORKS = {
     "TRC20": "USDT_TRX",
     "BEP20": "USDT_BSC",
-    "SOL": "USDT_SOL",
     "ERC20": "USDT",
     "ETH20": "USDT",
 }
@@ -681,7 +679,7 @@ def _plisio_tx_from_url(url):
 
 
 def _create_plisio_payment(investment, order_ref):
-    """Create a Plisio invoice for a BEP20/SOL investment. Returns the checkout
+    """Create a Plisio invoice for a BEP20 investment. Returns the checkout
     payload the frontend renders (redirect to the Plisio hosted invoice)."""
     coin = investment.coin
     amount = float(investment.amount)
@@ -955,7 +953,9 @@ def _simulated_hash(kind):
 def _fake_address(coin):
     """Deterministic fake deposit address so simulate mode looks realistic."""
     net = (coin.chain or "TRC20").upper()
-    prefix = {"TRC20": "T", "BEP20": "0x", "BEP2": "bnb1", "ERC20": "0x", "SOL": "", "TON": "UQ"}[net]
+    # .get with an empty default: a coin row can still carry a chain that is no
+    # longer offered (e.g. after removing SOL), and that must not 500 here.
+    prefix = {"TRC20": "T", "BEP20": "0x", "BEP2": "bnb1", "ERC20": "0x", "TON": "UQ"}.get(net, "")
     return f"{prefix}{secrets.token_hex(20)}"
 
 
