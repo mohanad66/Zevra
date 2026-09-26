@@ -6,6 +6,14 @@ import { useI18n } from '../i18n'
 import { client } from '../api/client'
 import { Camera, ShieldCheck, KeyRound, LogOut, Trash2, Plus } from 'lucide-react'
 
+// KYC document types. ``value`` is the token stored by the API and shown in the
+// admin review table, so it stays English; ``labelKey`` is what the visitor sees.
+const DOC_TYPES = [
+  { value: 'ID card', labelKey: 'pf.kyc.docTypeIdCard' },
+  { value: 'Passport', labelKey: 'pf.kyc.docTypePassport' },
+  { value: 'Driver license', labelKey: 'pf.kyc.docTypeDriverLicense' },
+]
+
 export default function Profile() {
   const { user, refreshUser, logout, apiError } = useAuth()
   const { toast } = useToast()
@@ -240,7 +248,10 @@ export default function Profile() {
             </div>
             <label>{t('pf.kyc.docType')}
               <select value={kycForm.document_type} onChange={(e) => setKycForm({ ...kycForm, document_type: e.target.value })}>
-                {['ID card', 'Passport', 'Driver license'].map((d) => <option key={d}>{d}</option>)}
+                {/* value stays the English token the API stores; only the label is localized */}
+                {DOC_TYPES.map((d) => (
+                  <option key={d.value} value={d.value}>{t(d.labelKey)}</option>
+                ))}
               </select>
             </label>
             <div className="row2">
