@@ -184,6 +184,12 @@ export const ar = {
   'invest.checkingBody': 'نراقب الشبكة بحثاً عن إيداعك. أبقِ هذه الصفحة مفتوحة — فور تأكيد بوابة الدفع لدفعتك، سيتم تأكيد استثمارك تلقائياً.',
   'invest.paymentExpired': 'لم يعد هذا الدفع صالحاً. يرجى البدء بطلب جديد.',
   'invest.newOrder': 'ابدأ طلباً جديداً',
+  'invest.network': 'شبكة الدفع',
+  'invest.payOnNetwork': 'ادفع عبر شبكة',
+  'networkGroupLabel': 'شبكة الدفع',
+  'networkSoon': 'قريباً',
+  'networkSoonShort': 'قريباً',
+  'invest.qrAlt': 'رمز QR لعنوان الدفع',
 
   // withdraw
   'wd.title': 'سحب',

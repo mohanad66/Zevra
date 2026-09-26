@@ -60,6 +60,10 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "api.middleware.TrustedProxyRealIPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    # Must sit before CommonMiddleware: api.middleware.LanguageMiddleware turns
+    # the SPA's X-Lang header into the active language so Django's own catalogs
+    # (password validators, date/number formats) follow the UI toggle.
+    "api.middleware.LanguageMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -125,6 +129,7 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
+LANGUAGES = (("en", "English"), ("ar", "Arabic"))
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -214,6 +219,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    # Framework/serializer errors are plain English msgids upstream; this handler
+    # rewrites them for Arabic requests (see api/exceptions.py).
+    "EXCEPTION_HANDLER": "api.exceptions.exception_handler",
     # Abuse protection: per-IP (anon) and per-user rate limits, plus opt-in
     # scoped limits on sensitive endpoints (views set ``throttle_scope``).
     "DEFAULT_THROTTLE_CLASSES": (

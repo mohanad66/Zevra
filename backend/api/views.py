@@ -370,7 +370,7 @@ class WalletDetailView(views.APIView):
             coin = Coin.objects.get(pk=coin_id)
             wallet = Wallet.objects.get(user=user, coin=coin)
         except (Coin.DoesNotExist, Wallet.DoesNotExist):
-            return response.Response({"detail": "Wallet not found."}, status=404)
+            return response.Response({"detail": tr("Wallet not found.", request)}, status=404)
 
         investments = user.investments.filter(coin=coin).order_by("-created_at")
         withdrawals = user.withdrawals.filter(coin=coin).order_by("-created_at")
@@ -425,7 +425,11 @@ class InvestView(views.APIView):
             payload = create_payment_order(investment)
             if payload.get("status") == "failed":
                 raise serializers.ValidationError(
-                    payload.get("message") or "Payment gateway could not create the order."
+                    tr(
+                        payload.get("message")
+                        or "Payment gateway could not create the order.",
+                        request,
+                    )
                 )
             if payload.get("order_ref"):
                 order.order_ref = payload["order_ref"]
@@ -450,7 +454,7 @@ class InvestView(views.APIView):
                 "investment": InvestmentSerializer(investment).data,
                 "payment": payload,
                 "message": (
-                    payload.get("message")
+                    tr(payload.get("message"), request)
                     or tr(
                         "Investment order created. Complete the crypto payment to confirm it.",
                         request,
@@ -577,11 +581,11 @@ class GatewayWebhookView(views.APIView):
         plisio_ok = is_plisio and verify_plisio_signature(data)
         if not (header_ok or cryptomus_ok or plisio_ok):
             return response.Response(
-                {"detail": "Bad signature."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": tr("Bad signature.", request)}, status=status.HTTP_400_BAD_REQUEST
             )
         if data is None:
             return response.Response(
-                {"detail": "Invalid payload."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": tr("Invalid payload.", request)}, status=status.HTTP_400_BAD_REQUEST
             )
         if cryptomus_ok:
             handled = handle_cryptomus_webhook(data)
@@ -659,16 +663,20 @@ class AdminUserActionView(views.APIView):
     def post(self, request, pk):
         user = User.objects.filter(pk=pk).first()
         if user is None:
-            return response.Response({"detail": "User not found."}, 404)
+            return response.Response({"detail": tr("User not found.", request)}, 404)
         action = (request.data.get("action") or "").strip()
         if action == "freeze":
             user.is_frozen = True
             user.save(update_fields=["is_frozen"])
-            return response.Response({"message": f"{user.email} frozen."})
+            return response.Response(
+                {"message": tr("{email} frozen.", request, email=user.email)}
+            )
         if action == "unfreeze":
             user.is_frozen = False
             user.save(update_fields=["is_frozen"])
-            return response.Response({"message": f"{user.email} unfrozen."})
+            return response.Response(
+                {"message": tr("{email} unfrozen.", request, email=user.email)}
+            )
         if action == "kyc_approve":
             user.kyc_verified = True
             user.kyc_rejected = False
@@ -676,7 +684,9 @@ class AdminUserActionView(views.APIView):
             user.kyc_submissions.filter(status=KYCSubmission.STATUS_PENDING).update(
                 status=KYCSubmission.STATUS_APPROVED, reviewed_at=timezone.now()
             )
-            return response.Response({"message": f"{user.email} KYC approved."})
+            return response.Response(
+                {"message": tr("{email} KYC approved.", request, email=user.email)}
+            )
         if action == "kyc_reject":
             user.kyc_verified = False
             user.kyc_rejected = True
@@ -684,36 +694,58 @@ class AdminUserActionView(views.APIView):
             user.kyc_submissions.filter(status=KYCSubmission.STATUS_PENDING).update(
                 status=KYCSubmission.STATUS_REJECTED, reviewed_at=timezone.now()
             )
-            return response.Response({"message": f"{user.email} KYC rejected."})
+            return response.Response(
+                {"message": tr("{email} KYC rejected.", request, email=user.email)}
+            )
         if action == "ban":
             try:
                 hours = int(request.data.get("hours") or 0)
             except (TypeError, ValueError):
                 hours = 0
             if hours <= 0:
-                return response.Response({"detail": "Provide a positive number of hours."}, 400)
+                return response.Response({"detail": tr("Provide a positive number of hours.", request)}, 400)
             user.banned_until = timezone.now() + timedelta(hours=hours)
             user.save(update_fields=["banned_until"])
             until = timezone.localtime(user.banned_until)
             return response.Response(
-                {"message": f"{user.email} banned until {until:%d %b %Y %H:%M}."}
+                {
+                    "message": tr(
+                        "{email} banned until {until}.",
+                        request,
+                        email=user.email,
+                        until=until.strftime("%d %b %Y %H:%M"),
+                    )
+                }
             )
         if action == "unban":
             user.banned_until = None
             user.save(update_fields=["banned_until"])
-            return response.Response({"message": f"{user.email} unbanned."})
+            return response.Response(
+                {"message": tr("{email} unbanned.", request, email=user.email)}
+            )
         if action == "delete":
             confirm = (request.data.get("confirm") or "").strip().lower()
             if confirm != user.email.lower():
                 return response.Response(
-                    {"detail": f"Type the user's email ({user.email}) to confirm deletion."}, 400
+                    {
+                        "detail": tr(
+                            "Type the user's email ({email}) to confirm deletion.",
+                            request,
+                            email=user.email,
+                        )
+                    },
+                    400,
                 )
             if user == request.user:
-                return response.Response({"detail": "You cannot delete your own account."}, 400)
+                return response.Response({"detail": tr("You cannot delete your own account.", request)}, 400)
             email = user.email
             user.delete()
-            return response.Response({"message": f"Account {email} permanently deleted."})
-        return response.Response({"detail": f"Unknown action '{action}'."}, 400)
+            return response.Response(
+                {"message": tr("Account {email} permanently deleted.", request, email=email)}
+            )
+        return response.Response(
+            {"detail": tr("Unknown action '{action}'.", request, action=action)}, 400
+        )
 
 
 class AdminBalanceAdjustView(views.APIView):
@@ -724,18 +756,18 @@ class AdminBalanceAdjustView(views.APIView):
     def post(self, request, pk):
         user = User.objects.filter(pk=pk).first()
         if user is None:
-            return response.Response({"detail": "User not found."}, 404)
+            return response.Response({"detail": tr("User not found.", request)}, 404)
         try:
             coin_id = int(request.data.get("coin_id") or 0)
             coin = Coin.objects.filter(pk=coin_id).first()
             if coin is None:
-                return response.Response({"detail": "Choose a valid coin."}, 400)
+                return response.Response({"detail": tr("Choose a valid coin.", request)}, 400)
             invested_delta = Decimal(str(request.data.get("invested_delta") or "0"))
             withdrawable_delta = Decimal(str(request.data.get("withdrawable_delta") or "0"))
         except (TypeError, ValueError):
-            return response.Response({"detail": "Invalid balance delta."}, 400)
+            return response.Response({"detail": tr("Invalid balance delta.", request)}, 400)
         if invested_delta == 0 and withdrawable_delta == 0:
-            return response.Response({"detail": "No change requested."}, 400)
+            return response.Response({"detail": tr("No change requested.", request)}, 400)
 
         with transaction.atomic():
             wallet = Wallet.objects.select_for_update().get_or_create(
@@ -745,7 +777,7 @@ class AdminBalanceAdjustView(views.APIView):
             new_withdrawable = wallet.withdrawable_balance + withdrawable_delta
             if new_invested < 0 or new_withdrawable < 0:
                 return response.Response(
-                    {"detail": "Resulting balance cannot be negative."}, 400
+                    {"detail": tr("Resulting balance cannot be negative.", request)}, 400
                 )
             wallet.invested_balance = new_invested
             wallet.withdrawable_balance = new_withdrawable
@@ -813,7 +845,7 @@ class AdminKycReviewActionView(views.APIView):
     def post(self, request, pk):
         sub = KYCSubmission.objects.filter(pk=pk).select_related("user").first()
         if sub is None:
-            return response.Response({"detail": "Submission not found."}, 404)
+            return response.Response({"detail": tr("Submission not found.", request)}, 404)
         action = (request.data.get("action") or "").strip()
         reason = (request.data.get("reason") or "").strip()
         user = sub.user
@@ -828,7 +860,9 @@ class AdminKycReviewActionView(views.APIView):
             user.kyc_submissions.filter(status=KYCSubmission.STATUS_PENDING).update(
                 status=KYCSubmission.STATUS_APPROVED, reviewed_at=timezone.now()
             )
-            return response.Response({"message": f"KYC approved for {user.email}."})
+            return response.Response(
+                {"message": tr("KYC approved for {email}.", request, email=user.email)}
+            )
         if action == "reject":
             sub.status = KYCSubmission.STATUS_REJECTED
             sub.reason = reason or "Documents could not be verified."
@@ -837,8 +871,12 @@ class AdminKycReviewActionView(views.APIView):
             user.kyc_verified = False
             user.kyc_rejected = True
             user.save(update_fields=["kyc_verified", "kyc_rejected"])
-            return response.Response({"message": f"KYC rejected for {user.email}."})
-        return response.Response({"detail": f"Unknown action '{action}'."}, 400)
+            return response.Response(
+                {"message": tr("KYC rejected for {email}.", request, email=user.email)}
+            )
+        return response.Response(
+            {"detail": tr("Unknown action '{action}'.", request, action=action)}, 400
+        )
 
 
 class AdminKycFileView(views.APIView):
@@ -853,17 +891,17 @@ class AdminKycFileView(views.APIView):
         """Return one KYC document image through the authed admin API."""
         sub = KYCSubmission.objects.filter(pk=pk).first()
         if sub is None:
-            return response.Response({"detail": "Submission not found."}, 404)
+            return response.Response({"detail": tr("Submission not found.", request)}, 404)
         attr = self.FIELD_MAP.get((field or "").lower())
         if attr is None:
-            return response.Response({"detail": "Invalid file field."}, 400)
+            return response.Response({"detail": tr("Invalid file field.", request)}, 400)
         img = getattr(sub, attr, None)
         if not img:
-            return response.Response({"detail": "No file for this field."}, 404)
+            return response.Response({"detail": tr("No file for this field.", request)}, 404)
         try:
             return FileResponse(img.open("rb"))
         except Exception:
-            return response.Response({"detail": "Could not open file."}, 500)
+            return response.Response({"detail": tr("Could not open file.", request)}, 500)
 
 
 class AdminPaymentSettingsView(views.APIView):
@@ -956,7 +994,7 @@ class AdminPaymentSettingsView(views.APIView):
                 defaults={"value": mode, "label": "simulate | provider | manual"},
             )
         elif mode:
-            return response.Response({"detail": "Invalid payment mode."}, 400)
+            return response.Response({"detail": tr("Invalid payment mode.", request)}, 400)
         payram_mode = (request.data.get("payram_mode") or "").strip().lower()
         if payram_mode in {"test", "production"}:
             PlatformSettings.objects.update_or_create(
@@ -964,7 +1002,7 @@ class AdminPaymentSettingsView(views.APIView):
                 defaults={"value": payram_mode, "label": "PayRam environment: test | production"},
             )
         elif payram_mode:
-            return response.Response({"detail": "Invalid PayRam mode."}, 400)
+            return response.Response({"detail": tr("Invalid PayRam mode.", request)}, 400)
         for field_name, key, label in (
             ("provider_url", PlatformSettings.S_PAYMENT_PROVIDER_URL, "(legacy) provider API base URL"),
             ("provider_key", PlatformSettings.S_PAYMENT_PROVIDER_KEY, "(legacy) provider API key"),
@@ -994,7 +1032,7 @@ class AdminPaymentSettingsView(views.APIView):
         if coin_id and address:
             coin = Coin.objects.filter(pk=coin_id).first()
             if coin is None:
-                return response.Response({"detail": "Invalid wallet coin."}, 400)
+                return response.Response({"detail": tr("Invalid wallet coin.", request)}, 400)
             CryptoAccount.objects.create(
                 user=request.user,
                 coin=coin,
@@ -1002,8 +1040,8 @@ class AdminPaymentSettingsView(views.APIView):
                 label=(request.data.get("wallet_label") or "Platform wallet"),
                 is_platform=True,
             )
-            return response.Response({"message": "Platform wallet saved."}, status=status.HTTP_201_CREATED)
-        return response.Response({"message": "Payment settings saved."})
+            return response.Response({"message": tr("Platform wallet saved.", request)}, status=status.HTTP_201_CREATED)
+        return response.Response({"message": tr("Payment settings saved.", request)})
 
 
 class AdminPaymentWalletDeleteView(views.APIView):
@@ -1012,9 +1050,9 @@ class AdminPaymentWalletDeleteView(views.APIView):
     def delete(self, request, pk):
         wallets = CryptoAccount.objects.filter(pk=pk, is_platform=True)
         if not wallets.exists():
-            return response.Response({"detail": "Platform wallet not found."}, 404)
+            return response.Response({"detail": tr("Platform wallet not found.", request)}, 404)
         wallets.delete()
-        return response.Response({"message": "Platform wallet removed."})
+        return response.Response({"message": tr("Platform wallet removed.", request)})
 
 
 class AdminProviderTestView(views.APIView):
@@ -1069,13 +1107,19 @@ class AdminOrderConfirmView(views.APIView):
     def post(self, request, pk):
         order = PaymentOrder.objects.select_related("investment").filter(pk=pk).first()
         if order is None:
-            return response.Response({"detail": "Payment order not found."}, 404)
+            return response.Response({"detail": tr("Payment order not found.", request)}, 404)
         if order.status != PaymentOrder.STATUS_PENDING:
-            return response.Response({"message": "This order is already processed."})
+            return response.Response({"message": tr("This order is already processed.", request)})
         order.mark_paid("admin")
         order.investment.confirm()
         return response.Response(
-            {"message": f"Order {order.order_ref} marked paid and investment confirmed."}
+            {
+                "message": tr(
+                    "Order {ref} marked paid and investment confirmed.",
+                    request,
+                    ref=order.order_ref,
+                )
+            }
         )
 
 
@@ -1155,7 +1199,13 @@ def _activate_window(window, request):
     )
     return response.Response(
         {
-            "message": f"'{window.title}' opened ({scope}) until {ends_at:%d %b %Y %H:%M}.",
+            "message": tr(
+                "'{title}' opened ({scope}) until {until}.",
+                request,
+                title=window.title,
+                scope=scope,
+                until=ends_at.strftime("%d %b %Y %H:%M"),
+            ),
             "ends_at": ends_at,
         }
     )
@@ -1196,7 +1246,7 @@ class AdminWindowsView(generics.ListAPIView):
             ids = data.get("target_user_ids")
             if not isinstance(ids, list):
                 return response.Response(
-                    {"detail": "target_user_ids must be a list of user ids."}, 400
+                    {"detail": tr("target_user_ids must be a list of user ids.", request)}, 400
                 )
             user_ids = []
             for i in ids:
@@ -1204,7 +1254,7 @@ class AdminWindowsView(generics.ListAPIView):
                     user_ids.append(int(i))
                 except (TypeError, ValueError):
                     return response.Response(
-                        {"detail": "target_user_ids must be a list of user ids."}, 400
+                        {"detail": tr("target_user_ids must be a list of user ids.", request)}, 400
                     )
             valid = set(User.objects.filter(pk__in=user_ids).values_list("pk", flat=True))
             window.target_users.set(valid)
@@ -1216,7 +1266,7 @@ class AdminWindowsView(generics.ListAPIView):
             return _activate_window(window, request)
         return response.Response(
             {
-                "message": f"'{window.title}' created.",
+                "message": tr("'{title}' created.", request, title=window.title),
                 "id": window.pk,
                 "window": PayoutWindowSerializer(
                     window, context={"request": request}
@@ -1245,7 +1295,7 @@ class AdminWindowToggleView(views.APIView):
     def post(self, request, pk):
         window = PayoutWindow.objects.filter(pk=pk).first()
         if window is None:
-            return response.Response({"detail": "Window not found."}, 404)
+            return response.Response({"detail": tr("Window not found.", request)}, 404)
         data = request.data
 
         if "active" not in data:
@@ -1255,20 +1305,22 @@ class AdminWindowToggleView(views.APIView):
                 try:
                     window.percent = Decimal(str(data.get("percent")))
                 except Exception:
-                    return response.Response({"detail": "Invalid percent."}, 400)
+                    return response.Response({"detail": tr("Invalid percent.", request)}, 400)
                 window.save(update_fields=["percent"])
                 updated.append("percent")
             if "target_user_ids" in data:
                 ids = data.get("target_user_ids")
                 if not isinstance(ids, list):
-                    return response.Response({"detail": "target_user_ids must be a list of user ids."}, 400)
+                    return response.Response({"detail": tr("target_user_ids must be a list of user ids.", request)}, 400)
                 if self._apply_target(window, ids) is None:
-                    return response.Response({"detail": "target_user_ids must be a list of user ids."}, 400)
+                    return response.Response({"detail": tr("target_user_ids must be a list of user ids.", request)}, 400)
                 window.save(update_fields=["target_mode"])
                 updated.append("target")
             if not updated:
-                return response.Response({"detail": "Nothing to update."}, 400)
-            return response.Response({"message": f"'{window.title}' updated."})
+                return response.Response({"detail": tr("Nothing to update.", request)}, 400)
+            return response.Response(
+            {"message": tr("'{title}' updated.", request, title=window.title)}
+        )
 
         activate = bool(data.get("active"))
         if activate:
@@ -1284,14 +1336,16 @@ class AdminWindowToggleView(views.APIView):
             if "target_user_ids" in data:
                 ids = data.get("target_user_ids")
                 if not isinstance(ids, list):
-                    return response.Response({"detail": "target_user_ids must be a list of user ids."}, 400)
+                    return response.Response({"detail": tr("target_user_ids must be a list of user ids.", request)}, 400)
                 if self._apply_target(window, ids) is None:
-                    return response.Response({"detail": "target_user_ids must be a list of user ids."}, 400)
+                    return response.Response({"detail": tr("target_user_ids must be a list of user ids.", request)}, 400)
                 target_changed = True
             window.save(update_fields=["percent", "duration_hours", "target_mode"])
             return _activate_window(window, request)
         window.close()
-        return response.Response({"message": f"'{window.title}' closed."})
+        return response.Response(
+            {"message": tr("'{title}' closed.", request, title=window.title)}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1344,7 +1398,7 @@ class WithdrawalCreateView(views.APIView):
             wallet = Wallet.objects.select_for_update().get(user=user, coin=coin)
             if wallet.withdrawable_balance < amount:
                 return response.Response(
-                    {"amount": "Insufficient withdrawable balance."}, status=400
+                    {"amount": tr("Insufficient withdrawable balance.", request)}, status=400
                 )
             wallet.withdrawable_balance -= amount
             wallet.save(update_fields=["withdrawable_balance", "updated_at"])
@@ -1371,8 +1425,19 @@ class WithdrawalCreateView(views.APIView):
                     wallet.withdrawable_balance += amount
                     wallet.save(update_fields=["withdrawable_balance", "updated_at"])
                     withdrawal.mark_failed(f"Payout failed: {exc}")
+                # The provider's raw error (HTTP code + JSON body) stays on the
+                # withdrawal record for support; the customer only sees a
+                # translated message they can act on.
                 return response.Response(
-                    {"error": f"Withdrawal failed and balance was refunded: {exc}"},
+                    {
+                        "error": tr(
+                            "The withdrawal could not be sent and your balance was "
+                            "refunded. Our payment provider is temporarily unable to "
+                            "process this network. Please try again shortly or contact "
+                            "support.",
+                            request,
+                        )
+                    },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
             provider = (
@@ -1665,7 +1730,7 @@ class AdminNotificationView(views.APIView):
     def post(self, request):
         title = (request.data.get("title") or "").strip()
         if not title:
-            return response.Response({"detail": "title is required."}, 400)
+            return response.Response({"detail": tr("title is required.", request)}, 400)
         target = (request.data.get("target") or "all").strip()
         user_ids = None
         if target == "invested":
@@ -1684,7 +1749,7 @@ class AdminNotificationView(views.APIView):
             user_ids=user_ids,
             created_by=request.user,
         )
-        return response.Response({"message": "Announcement sent."})
+        return response.Response({"message": tr("Announcement sent.", request)})
 
 
 # ---------------------------------------------------------------------------
@@ -1747,7 +1812,9 @@ class AdminPlatformSettingsView(views.APIView):
                 try:
                     val = str(Decimal(str(value)))
                 except Exception:
-                    return response.Response({"detail": f"Invalid numeric value for {key}."}, 400)
+                    return response.Response(
+            {"detail": tr("Invalid numeric value for {key}.", request, key=key)}, 400
+        )
             else:
                 val = str(value).strip()[:40] or "en"
             PlatformSettings.objects.update_or_create(
@@ -1755,5 +1822,5 @@ class AdminPlatformSettingsView(views.APIView):
             )
             updated.append(key)
         if not updated:
-            return response.Response({"detail": "No known settings provided."}, 400)
-        return response.Response({"message": "Platform settings updated.", "keys": updated})
+            return response.Response({"detail": tr("No known settings provided.", request)}, 400)
+        return response.Response({"message": tr("Platform settings updated.", request), "keys": updated})

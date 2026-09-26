@@ -42,3 +42,38 @@ class TrustedProxyRealIPMiddleware:
             meta["REMOTE_ADDR"] = client
             meta["HTTP_X_REAL_IP"] = client
         return self.get_response(request)
+
+
+class LanguageMiddleware:
+    """Activate the response language from the X-Lang header (?lang= also works).
+
+    The SPA sends X-Lang on every request, but Django's own LocaleMiddleware
+    negotiates from Accept-Language/session, which never matches the UI toggle.
+    Without activation here Django's bundled catalogs (password validators,
+    date/number formats) stay English even when the visitor picked Arabic.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from django.conf import settings
+        from django.utils import translation
+        from django.utils.cache import patch_vary_headers
+
+        requested = (
+            request.META.get("HTTP_X_LANG") or request.GET.get("lang") or ""
+        ).strip().lower()
+        code = requested.split("-")[0][:2]
+        available = {c for c, _label in getattr(settings, "LANGUAGES", ())}
+        if code and code in available:
+            translation.activate(code)
+            request.LANGUAGE_CODE = code
+        else:
+            translation.activate(settings.LANGUAGE_CODE)
+            request.LANGUAGE_CODE = settings.LANGUAGE_CODE
+        response = self.get_response(request)
+        # Every message body is now language-dependent, so caches (nginx/Cloudflare)
+        # must key on the language header or one visitor gets the other's text.
+        patch_vary_headers(response, ["X-Lang"])
+        return response

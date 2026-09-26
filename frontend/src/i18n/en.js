@@ -184,6 +184,12 @@ export const en = {
   'invest.checkingBody': 'We are watching the network for your deposit. Keep this page open — as soon as the payment gateway confirms your payment, your investment will be confirmed automatically.',
   'invest.paymentExpired': 'This payment is no longer valid. Please start a new order.',
   'invest.newOrder': 'Start a new order',
+'invest.network': 'Network',
+'invest.payOnNetwork': 'Pay on network',
+'networkGroupLabel': 'Payment network',
+'networkSoon': 'coming soon',
+'networkSoonShort': 'soon',
+'invest.qrAlt': 'QR code for the deposit address',
 
   // withdraw
   'wd.title': 'Withdraw',

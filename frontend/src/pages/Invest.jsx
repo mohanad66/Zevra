@@ -181,7 +181,7 @@ export default function Invest() {
             <span><i>{t('invest.selectedCoin')}</i><b>{coin.name} ({coin.symbol})</b></span>
             <span><i>{t('invest.price')}</i><b>${fmt(coin.current_price, 8)}</b></span>
             <span><i>{t('invest.min')}</i><b>{fmt(coin.min_invest)} {coin.symbol}</b></span>
-            <span><i>{ar ? 'شبكة الدفع' : 'Network'}</i><b>{network}</b></span>
+            <span><i>{t('invest.network')}</i><b>{network}</b></span>
           </div>
 
           <label>
@@ -204,11 +204,11 @@ export default function Invest() {
             ))}
           </div>
 
-          <div className="saved-accounts" role="radiogroup" aria-label={ar ? 'شبكة الدفع' : 'Payment network'}>
-            <span className="muted small">{ar ? 'ادفع عبر شبكة' : 'Pay on network'}</span>
+          <div className="saved-accounts" role="radiogroup" aria-label={t('networkGroupLabel')}>
+            <span className="muted small">{t('invest.payOnNetwork')}</span>
             {NETWORKS.map((n) => {
               const ok = isAllowed(n)
-              const why = ar ? 'قريباً' : 'coming soon'
+              const why = t('networkSoon')
               return (
                 <button
                   type="button"
@@ -221,7 +221,7 @@ export default function Invest() {
                   style={ok ? undefined : { opacity: 0.45, cursor: 'not-allowed' }}
                   onClick={() => ok && setNetwork(n.id)}
                 >
-                  {n.label} · {n.hint}{n.enabled ? '' : ` (${ar ? 'قريباً' : 'soon'})`}
+                  {n.label} · {n.hint}{n.enabled ? '' : ` (${t('networkSoonShort')})`}
                 </button>
               )
             })}
@@ -256,7 +256,7 @@ export default function Invest() {
             <div style={{ textAlign: 'center', margin: '0 0 1rem' }}>
               <img
                 src={payment.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payment.address)}`}
-                alt={ar ? 'رمز QR لعنوان الدفع' : 'QR code for the deposit address'}
+                alt={t('invest.qrAlt')}
                 width={220}
                 height={220}
                 style={{ borderRadius: '12px', background: '#fff', padding: '8px' }}
