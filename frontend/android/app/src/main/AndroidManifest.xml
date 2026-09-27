@@ -38,4 +38,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Withdraw.jsx scans the Plisio address QR via html5-qrcode, which uses
+         getUserMedia. Capacitor's BridgeWebChromeClient requests this at runtime
+         for VIDEO_CAPTURE, but the permission must be declared here or the
+         scanner is denied outright. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>
