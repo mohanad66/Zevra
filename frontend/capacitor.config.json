@@ -1,5 +1,5 @@
 {
-  "appId": "io.miyartrading.app",
+  "appId": "com.miyartrading.app",
   "appName": "Miyar Trading",
   "webDir": "dist",
   "server": {

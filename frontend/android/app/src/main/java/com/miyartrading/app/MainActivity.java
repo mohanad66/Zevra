@@ -1,4 +1,4 @@
-package io.miyartrading.app;
+package com.miyartrading.app;
 
 import com.getcapacitor.BridgeActivity;
 

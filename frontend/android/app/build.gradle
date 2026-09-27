@@ -11,10 +11,10 @@ if (keystorePropsFile.exists()) {
 }
 
 android {
-    namespace = "io.miyartrading.app"
+    namespace = "com.miyartrading.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "io.miyartrading.app"
+        applicationId "com.miyartrading.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

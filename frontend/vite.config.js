@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => ({
     // are bundled inside the APK and updates ship through the Play Store, so a
     // SW cache can only pin the visitor to a stale build. Keep it for the
     // browser build, where it makes the site installable.
-    ...(mode === 'mobile'
+    ...(mode.startsWith('mobile')
       ? []
       : [
           VitePWA({

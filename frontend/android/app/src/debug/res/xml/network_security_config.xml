@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only (app/src/debug/res). The local mobile build talks to a
+  Django dev server over plain HTTP on the LAN, which Android blocks by default
+  from API 28 onward. This lives in the debug source set so the release / Play
+  build keeps cleartext disabled and only accepts HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
