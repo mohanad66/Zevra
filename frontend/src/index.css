@@ -87,14 +87,33 @@ img { max-width: 100%; }
 .bn-link { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted); font-size: 11px; font-weight: 600; padding: 6px 10px; border-radius: 10px; }
 .bn-link.active { color: var(--brand); }
 
+/* Support and community sit above the legal links as prominent actions: they
+   are the two things a stuck user actually needs, and as plain muted footer text
+   they were effectively invisible. Both rows wrap, because five links plus
+   separators overflowed the viewport on a phone and pushed these off-screen. */
 .footer {
-  display: flex; justify-content: center; gap: 10px; align-items: center;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
   border-top: 1px solid var(--line); margin-top: 30px;
-  padding: 18px; color: var(--muted); font-size: 13px;
+  padding: 22px 18px; color: var(--muted); font-size: 13px;
+  text-align: center;
 }
+.footer-social { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: 100%; }
+.footer-cta {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 18px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--line);
+  color: var(--text); font-weight: 600; font-size: 13px;
+  max-width: 100%;
+}
+.footer-cta:hover { border-color: var(--brand); background: var(--panel); }
+.footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; }
+.footer-links a { color: var(--muted); }
+.footer-links a:hover { color: var(--text); }
 @media (max-width:860px) {
-  .footer{
-    margin-bottom: 25%;
+  /* Clear the fixed bottom nav. A percentage margin resolved against the
+     viewport width, so the gap varied from device to device. */
+  .footer {
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
   }
 }
 /* ---------- page & cards ---------- */
@@ -431,6 +450,13 @@ tr:last-child td { border-bottom: none; }
 @media (max-width: 480px) {
   .totals-grid.two { grid-template-columns: 1fr; }
   .btn.lg { width: 100%; }
+  /* The wordmark plus three icon buttons and the avatar chip overflow a narrow
+     phone, so drop the wordmark and tighten the gaps. */
+  .brand-name { display: none; }
+  .topbar { gap: 10px; padding: 10px 12px; }
+  .topbar-right { gap: 6px; }
+  /* Keep the support/community actions from wrapping mid-label. */
+  .footer-cta { padding: 10px 14px; }
 }
 
 /* ---------- notifications + language ---------- */

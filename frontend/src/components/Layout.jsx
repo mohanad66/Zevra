@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom'
-import { LineChart, TrendingUp, ArrowDownToLine, Users, UserCircle, LogOut, Home, Shield, Bell, Globe } from 'lucide-react'
+import { LineChart, TrendingUp, ArrowDownToLine, Users, UserCircle, LogOut, Home, Shield, Bell, Globe, LifeBuoy } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
 import { client } from '../api/client'
@@ -174,15 +174,19 @@ export default function Layout() {
       </nav>
 
       <footer className="footer">
-        <NavLink to="/terms">{t('nav.terms')}</NavLink>
-        <span>·</span>
-        <NavLink to="/privacy">{t('nav.privacy')}</NavLink>
-        <span>·</span>
-        <NavLink to="/kyc-policy">{t('nav.kycPolicy')}</NavLink>
-        <span>·</span>
-        <a href="https://t.me/miyar_3" target="_blank">{t('nav.support')}</a>
-        <span>·</span>
-        <a href="https://t.me/+RuwZtt7e2AsxMTAx" target="_blank">{t('nav.community')}</a>
+        <div className="footer-social">
+          <a className="footer-cta" href="https://t.me/miyar_3" target="_blank" rel="noopener noreferrer">
+            <LifeBuoy size={16} /> {t('nav.support')}
+          </a>
+          <a className="footer-cta" href="https://t.me/+RuwZtt7e2AsxMTAx" target="_blank" rel="noopener noreferrer">
+            <Users size={16} /> {t('nav.community')}
+          </a>
+        </div>
+        <div className="footer-links">
+          <NavLink to="/terms">{t('nav.terms')}</NavLink>
+          <NavLink to="/privacy">{t('nav.privacy')}</NavLink>
+          <NavLink to="/kyc-policy">{t('nav.kycPolicy')}</NavLink>
+        </div>
       </footer>
     </div>
   )
