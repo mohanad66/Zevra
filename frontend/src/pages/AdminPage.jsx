@@ -559,6 +559,12 @@ export default function AdminPage() {
 
       {tab === 'users' && (
         <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+            <h3 style={{ margin: 0 }}>{t('admin.tab.users')}</h3>
+            <span className="muted small">
+              {q ? t('admin.users.countFiltered', { count: users.length }) : t('admin.users.count', { count: users.length })}
+            </span>
+          </div>
           <div style={{ position: 'relative', marginBottom: '1rem' }}>
             <Search size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
             <input

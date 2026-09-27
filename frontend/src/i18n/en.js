@@ -503,6 +503,8 @@ export const en = {
   'admin.win.settingsHint': 'Payout percent and window duration are controlled in the Settings tab and are applied when the window is opened.',
   'admin.users.search': 'Search by email, name, or phone…',
   'admin.users.empty': 'No users found.',
+  'admin.users.count': '{count} users',
+  'admin.users.countFiltered': '{count} matching',
   'admin.users.invested': 'Invested ${inv} · Withdrawable ${wd}',
   'admin.users.tree': 'Referrals — L1: {l1} · L2: {l2} · L3: {l3}',
   'admin.users.banned': 'Banned until {date}',

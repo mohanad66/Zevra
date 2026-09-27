@@ -502,6 +502,8 @@ export const ar = {
   'admin.win.settingsHint': 'تعدَّل نسبة الدفعة ومدة النافذة من إعدادات المنصة وتُطبَّق عند فتح النافذة.',
   'admin.users.search': 'ابحث بالبريد الإلكتروني أو الاسم أو الهاتف…',
   'admin.users.empty': 'لا توجد نتائج.',
+  'admin.users.count': '{count} مستخدم',
+  'admin.users.countFiltered': '{count} نتيجة مطابقة',
   'admin.users.invested': 'مستثمر ${inv} · قابل للسحب ${wd}',
   'admin.users.tree': 'الإحالات — المستوى 1: {l1} · المستوى 2: {l2} · المستوى 3: {l3}',
   'admin.users.banned': 'موقوف حتى {date}',
