@@ -18,6 +18,8 @@ export const ar = {
   'nav.terms': 'شروط الخدمة',
   'nav.privacy': 'سياسة الخصوصية',
   'nav.kycPolicy': 'سياسة مكافحة غسل الأموال / اعرف عميلك',
+  "nav.support":"لتواصل مع مشرف معيار",
+  "nav.community": "الدخول الى مجتمع أعضاء معيار",
 
   // common
   'common.loading': 'جارٍ التحميل…',

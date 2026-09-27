@@ -179,6 +179,10 @@ export default function Layout() {
         <NavLink to="/privacy">{t('nav.privacy')}</NavLink>
         <span>·</span>
         <NavLink to="/kyc-policy">{t('nav.kycPolicy')}</NavLink>
+        <span>·</span>
+        <a href="t.me/miyar_3">{t('nav.support')}</a>
+        <span>·</span>
+        <a href="https://t.me/+RuwZtt7e2AsxMTAx">{t('nav.community')}</a>
       </footer>
     </div>
   )

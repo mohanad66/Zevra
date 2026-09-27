@@ -18,6 +18,9 @@ export const en = {
   'nav.terms': 'Terms of Service',
   'nav.privacy': 'Privacy Policy',
   'nav.kycPolicy': 'AML / KYC Policy',
+  "nav.support": "Contact with Miyar Admin",
+  "nav.community": "Join Miyar Community",
+
 
   // common
   'common.loading': 'Loading…',
