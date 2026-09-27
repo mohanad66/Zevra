@@ -192,12 +192,11 @@ export default function Invest() {
               step="any"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder={`${t('invest.min')} ${coin.min_invest} ${coin.symbol}`}
               required
             />
           </label>
           <div className="quick-amounts">
-            {[50, 100, 250, 500].map((q) => (
+            {[70, 100, 250, 500].map((q) => (
               <button type="button" className="chip" key={q} onClick={() => setAmount(String(q))}>
                 {q} {coin.symbol}
               </button>
