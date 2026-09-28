@@ -391,8 +391,12 @@ class WithdrawalInputSerializer(serializers.Serializer):
 
         cooldown_hours = PlatformSettings.cooldown_total_hours("withdraw_cooldown", (0, 0, 0, 24))
         if cooldown_hours > 0:
-            last_withdrawal = user.withdrawals.exclude(
-                status=Withdrawal.STATUS_REJECTED
+            # Only real, in-flight or completed withdrawals start the cooldown.
+            # A failed transfer, a cancelled request or an admin rejection must
+            # not, or the user is blocked from retrying for hours after an error
+            # that was not their fault and that refunded them nothing.
+            last_withdrawal = user.withdrawals.filter(
+                status__in=Withdrawal.COOLDOWN_STATUSES
             ).aggregate(latest=models.Max("created_at"))["latest"]
             if last_withdrawal and last_withdrawal > timezone.now() - timedelta(hours=cooldown_hours):
                 raise serializers.ValidationError(

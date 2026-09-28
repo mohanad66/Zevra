@@ -220,6 +220,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
             == "provider"
         )
         sent = 0
+        failed = 0
         for wd in queryset.filter(status=Withdrawal.STATUS_PENDING):
             try:
                 ref = send_platform_to_user(
@@ -240,12 +241,25 @@ class WithdrawalAdmin(admin.ModelAdmin):
                     wd.save(update_fields=["status", "tx_hash", "updated_at"])
                 sent += 1
             except Exception as exc:  # noqa: BLE001
+                from api.models import Wallet as WalletModel
+                from decimal import Decimal
+
+                # The transfer never left the platform, so the reserved balance
+                # must go back to the user. A failed withdrawal does not start
+                # the withdraw cooldown (see Withdrawal.COOLDOWN_STATUSES), which
+                # means the user can immediately retry: leaving the amount
+                # debited here would let them withdraw the same funds twice.
+                wallet = WalletModel.ensure(wd.user, wd.coin)
+                wallet.withdrawable_balance += Decimal(wd.amount)
+                wallet.save(update_fields=["withdrawable_balance", "updated_at"])
                 wd.status = Withdrawal.STATUS_FAILED
                 wd.reject_reason = f"Transfer failed: {exc}"
                 wd.save(update_fields=["status", "reject_reason", "updated_at"])
+                failed += 1
         self.message_user(
             request,
-            f"{sent} withdrawal(s) {'dispatched to PayRam' if provider else 'paid out'}.",
+            f"{sent} withdrawal(s) {'dispatched to PayRam' if provider else 'paid out'}"
+            + (f", {failed} failed and refunded." if failed else "."),
         )
 
     @admin.action(description="Reject selected withdrawals (refund balance)")

@@ -473,6 +473,18 @@ class Withdrawal(models.Model):
         (STATUS_FAILED, "Failed"),
     ]
 
+    # Statuses that start the withdraw cooldown. Terminal outcomes (rejected,
+    # failed, cancelled) must NOT, otherwise a provider/payout error or an admin
+    # rejection locks the user out of retrying for the whole cooldown window even
+    # though they never received the funds. Enumerated positively rather than by
+    # excluding the failures, so a status added later cannot silently start a
+    # cooldown by default.
+    COOLDOWN_STATUSES = [
+        STATUS_PENDING,
+        STATUS_PROCESSING,
+        STATUS_COMPLETED,
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="withdrawals")
     coin = models.ForeignKey(Coin, on_delete=models.PROTECT, related_name="withdrawals")
     address = models.CharField(max_length=150)
