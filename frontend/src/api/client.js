@@ -52,19 +52,24 @@ client.interceptors.response.use(
           .post(`${API_BASE}/auth/refresh/`, { refresh: tokenStore.refresh })
           .then((res) => {
             tokenStore.tokens = { access: res.data.access }
+            if (res.data.refresh) tokenStore.tokens = { refresh: res.data.refresh }
             return res.data.access
           })
           .finally(() => {
             refreshing = null
           })
-      const newToken = await refreshing
-      config.headers.Authorization = `Bearer ${newToken}`
-      return client(config)
+      try {
+        const newToken = await refreshing
+        config.headers.Authorization = `Bearer ${newToken}`
+        return client(config)
+      } catch {
+        // Refresh failed: keep the stored tokens so the session survives a
+        // transient backend/network error. Never auto-logout.
+        return Promise.reject(error)
+      }
     }
-    if (response?.status === 401) {
-      tokenStore.clear()
-      window.dispatchEvent(new Event('miyartrading:logout'))
-    }
+    // Persistent 401: do NOT clear tokens and do NOT log the user out. The
+    // session stays until an explicit logout() call.
     return Promise.reject(error)
   },
 )

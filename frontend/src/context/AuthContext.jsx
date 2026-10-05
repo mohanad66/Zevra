@@ -22,8 +22,21 @@ export function AuthProvider({ children }) {
       .get('/auth/me/')
       .then((res) => setUser(res.data))
       .catch(() => {
-        tokenStore.clear()
-        setUser(null)
+        // Transient failure must not end the session: keep tokens, retry once
+        // the backend is reachable again instead of logging the user out.
+        if (tokenStore.refresh) {
+          client
+            .post('/auth/refresh/', { refresh: tokenStore.refresh })
+            .then((r) => {
+              tokenStore.tokens = { access: r.data.access }
+              return client.get('/auth/me/')
+            })
+            .then((res) => setUser(res.data))
+            .catch(() => {})
+            .finally(() => setLoading(false))
+        } else {
+          setLoading(false)
+        }
       })
       .finally(() => setLoading(false))
   }, [])
@@ -54,9 +67,14 @@ export function AuthProvider({ children }) {
   }
 
   async function refreshUser() {
-    const res = await client.get('/auth/me/')
-    setUser(res.data)
-    return res.data
+    try {
+      const res = await client.get('/auth/me/')
+      setUser(res.data)
+      return res.data
+    } catch {
+      // Ignore transient failures so a background refresh never logs the user out.
+      return null
+    }
   }
 
   return (
