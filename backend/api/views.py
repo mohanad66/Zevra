@@ -987,6 +987,7 @@ class AdminPaymentSettingsView(views.APIView):
                 is_platform=True,
             )
             return response.Response({"message": tr("Platform wallet saved.", request)}, status=status.HTTP_201_CREATED)
+        _invalidate_public_settings()
         return response.Response({"message": tr("Payment settings saved.", request)})
 
 
@@ -1561,12 +1562,34 @@ class PublicSettings:
         }
 
 
+PUBLIC_SETTINGS_CACHE_KEY = "public:settings"
+PUBLIC_SETTINGS_CACHE_SECONDS = int(os.environ.get("PUBLIC_SETTINGS_CACHE_SECONDS", "60"))
+
+
+def _invalidate_public_settings():
+    """Drop the cached public settings after an admin writes new values."""
+    try:
+        cache.delete(PUBLIC_SETTINGS_CACHE_KEY)
+    except Exception:  # noqa: BLE001 - never fail a write because the cache is down
+        pass
+
+
 class PublicSettingsView(views.APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        settings = PlatformSettings.public_map()
-        return response.Response(PublicSettings.serialize(settings))
+        cached = None
+        try:
+            cached = cache.get(PUBLIC_SETTINGS_CACHE_KEY)
+        except Exception:  # noqa: BLE001 - fall back to computing if cache is down
+            cached = None
+        if cached is None:
+            cached = PublicSettings.serialize(PlatformSettings.public_map())
+            try:
+                cache.set(PUBLIC_SETTINGS_CACHE_KEY, cached, PUBLIC_SETTINGS_CACHE_SECONDS)
+            except Exception:  # noqa: BLE001
+                pass
+        return response.Response(cached)
 
 
 # ---------------------------------------------------------------------------
@@ -1769,4 +1792,5 @@ class AdminPlatformSettingsView(views.APIView):
             updated.append(key)
         if not updated:
             return response.Response({"detail": tr("No known settings provided.", request)}, 400)
+        _invalidate_public_settings()
         return response.Response({"message": tr("Platform settings updated.", request), "keys": updated})

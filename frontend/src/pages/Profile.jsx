@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { client } from '../api/client'
+import { compressImage } from '../utils/image'
 import { Camera, ShieldCheck, KeyRound, LogOut, Trash2, Plus, CheckCircle2 } from 'lucide-react'
 
 // KYC document types. ``value`` is the token stored by the API and shown in the
@@ -17,7 +18,7 @@ const DOC_TYPES = [
 // A KYC upload tile: turns green and shows a small thumbnail of the chosen
 // image right next to the slot label (front / back / selfie) as soon as a file
 // is picked, so the visitor gets clear visual feedback before submitting.
-function KycFileField({ label, required, file, onPick, hint, ar }) {
+function KycFileField({ label, required, file, onPick, hint, ar, disabled }) {
   const [preview, setPreview] = useState(null)
 
   useEffect(() => {
@@ -42,6 +43,7 @@ function KycFileField({ label, required, file, onPick, hint, ar }) {
         type="file"
         accept="image/*"
         required={required}
+        disabled={disabled}
         onChange={(e) => onPick(e.target.files[0] || null)}
       />
       <span className="file-drop-body">
@@ -75,7 +77,29 @@ export default function Profile() {
   const [coins, setCoins] = useState([])
   const [accForm, setAccForm] = useState({ coin: null, address: '', label: '' })
   const [busy, setBusy] = useState(false)
+  const [compressing, setCompressing] = useState(false)
+  const [avatarPreview, setAvatarPreview] = useState(null)
   const ar = lang === 'ar'
+
+  async function pickImage(file, apply) {
+    if (!file) { apply(null); return }
+    setCompressing(true)
+    try {
+      apply(await compressImage(file))
+    } catch {
+      apply(file)
+    } finally { setCompressing(false) }
+  }
+
+  useEffect(() => {
+    if (!avatar) {
+      setAvatarPreview(null)
+      return undefined
+    }
+    const url = URL.createObjectURL(avatar)
+    setAvatarPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [avatar])
 
   async function load() {
     const [kycRes, accRes, coinRes] = await Promise.all([
@@ -220,8 +244,8 @@ export default function Profile() {
         <form className="card form" onSubmit={saveProfile}>
           <h3>{t('pf.personal')}</h3>
           <div className="avatar-row">
-            {avatar ? (
-              <img className="avatar lg" src={URL.createObjectURL(avatar)} alt="" />
+            {avatarPreview ? (
+              <img className="avatar lg" src={avatarPreview} alt="" />
             ) : user?.avatar_url ? (
               <img className="avatar lg" src={user.avatar_url} alt="" />
             ) : (
@@ -229,7 +253,7 @@ export default function Profile() {
             )}
             <label className="btn ghost file-btn">
               <Camera size={16} /> {t('pf.changePhoto')}
-              <input type="file" accept="image/*" onChange={(e) => setAvatar(e.target.files[0])} hidden />
+              <input type="file" accept="image/*" disabled={compressing} onChange={(e) => pickImage(e.target.files[0], setAvatar)} hidden />
             </label>
           </div>
           <div className="row2">
@@ -253,7 +277,7 @@ export default function Profile() {
               <input value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} placeholder={t('pf.optional')} />
             </label>
           </div>
-          <button className="btn primary block" disabled={busy}>{t('pf.saveChanges')}</button>
+          <button className="btn primary block" disabled={busy || compressing}>{t('pf.saveChanges')}</button>
         </form>
 
         <form className="card form" onSubmit={changePassword}>
@@ -307,15 +331,17 @@ export default function Profile() {
                 required
                 hint={t('pf.required')}
                 file={kycForm.document_front}
-                onPick={(f) => setKycForm({ ...kycForm, document_front: f })}
+                onPick={(f) => pickImage(f, (c) => setKycForm((prev) => ({ ...prev, document_front: c })))}
                 ar={ar}
+                disabled={compressing}
               />
               <KycFileField
                 label={t('pf.kyc.docBack')}
                 hint={t('pf.optional')}
                 file={kycForm.document_back}
-                onPick={(f) => setKycForm({ ...kycForm, document_back: f })}
+                onPick={(f) => pickImage(f, (c) => setKycForm((prev) => ({ ...prev, document_back: c })))}
                 ar={ar}
+                disabled={compressing}
               />
             </div>
             <KycFileField
@@ -323,10 +349,11 @@ export default function Profile() {
               required
               hint={t('pf.required')}
               file={kycForm.selfie}
-              onPick={(f) => setKycForm({ ...kycForm, selfie: f })}
+              onPick={(f) => pickImage(f, (c) => setKycForm((prev) => ({ ...prev, selfie: c })))}
               ar={ar}
+              disabled={compressing}
             />
-            <button className="btn primary block" disabled={busy}>{busy ? t('pf.kyc.submitting') : t('pf.kyc.submit')}</button>
+            <button className="btn primary block" disabled={busy || compressing}>{busy ? t('pf.kyc.submitting') : compressing ? t('pf.kyc.compressing') : t('pf.kyc.submit')}</button>
           </form>
         )}
       </div>

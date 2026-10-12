@@ -81,14 +81,26 @@ python manage.py collectstatic --noinput
 
 # --- Run ------------------------------------------------------------------
 echo "> starting gunicorn on :8000"
-GUNICORN_WORKERS=${GUNICORN_WORKERS:-3}
-GUNICORN_THREADS=${GUNICORN_THREADS:-4}
+# gthread workers: each worker pools a configurable number of threads, so one
+# box can serve hundreds of slow (I/O-bound) requests concurrently. Workers are
+# CPU-bound; threads are cheap. Sizing hints:
+#   GUNICORN_WORKERS  - default 4 (2 * vCPU is a good starting point)
+#   GUNICORN_THREADS  - default 8; raise for API-heavy traffic on few vCPUs
+# --max-requests recycles a worker after N requests to bound memory growth.
+GUNICORN_WORKERS=${GUNICORN_WORKERS:-4}
+GUNICORN_THREADS=${GUNICORN_THREADS:-8}
+GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-60}
+GUNICORN_MAX_REQUESTS=${GUNICORN_MAX_REQUESTS:-1500}
 exec gunicorn backend.wsgi:application \
   --bind 0.0.0.0:8000 \
   --workers "$GUNICORN_WORKERS" \
   --worker-class gthread \
   --threads "$GUNICORN_THREADS" \
+  --worker-tmp-dir /dev/shm \
+  --keep-alive 5 \
+  --max-requests "$GUNICORN_MAX_REQUESTS" \
+  --max-requests-jitter 200 \
+  --timeout "$GUNICORN_TIMEOUT" \
+  --graceful-timeout 30 \
   --access-logfile - \
-  --error-logfile - \
-  --timeout 60 \
-  --graceful-timeout 30
+  --error-logfile -

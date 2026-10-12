@@ -302,6 +302,7 @@ export const en = {
   'pf.kyc.selfie': 'Selfie',
   'pf.kyc.submit': 'Submit for review',
   'pf.kyc.submitting': 'Submitting…',
+  'pf.kyc.compressing': 'Compressing images…',
   'pf.kyc.submitted': 'KYC documents submitted for review.',
   'pf.kyc.frontRequired': 'Upload at least your document front image',
   'pf.kyc.reqInvest': 'Required to invest',

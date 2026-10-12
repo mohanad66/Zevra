@@ -301,6 +301,7 @@ export const ar = {
   'pf.kyc.selfie': 'صورة شخصية (سيلفي)',
   'pf.kyc.submit': 'إرسال للمراجعة',
   'pf.kyc.submitting': 'جارٍ الإرسال…',
+  'pf.kyc.compressing': 'جارٍ ضغط الصور…',
   'pf.kyc.submitted': 'تم إرسال وثائق التحقق من الهوية للمراجعة.',
   'pf.kyc.frontRequired': 'ارفع صورة الواجهة الأمامية للوثيقة على الأقل',
   'pf.kyc.reqInvest': 'مطلوب للاستثمار',
