@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmt, fmtCrypto, StatusBadge } from '../components/Format'
 import { ArrowLeft, TrendingUp, Wallet } from 'lucide-react'
+import Loading from '../components/Loading'
 
 export default function WalletDetail() {
   const { coinId } = useParams()
@@ -19,7 +20,7 @@ export default function WalletDetail() {
       .catch((err) => toast((err?.response?.data?.detail) || t('common.error'), 'error'))
   }, [coinId, t])
 
-  if (!data) return null
+  if (!data) return <Loading />
   const w = data.wallet
 
   return (

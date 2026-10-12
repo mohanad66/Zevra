@@ -4,16 +4,22 @@ import { client } from '../api/client'
 import { useI18n } from '../i18n'
 import { fmtCrypto, StatusBadge } from '../components/Format'
 import { Trophy } from 'lucide-react'
+import Loading from '../components/Loading'
 
 export default function Payouts() {
   const [payouts, setPayouts] = useState([])
   const [accounts, setAccounts] = useState([])
+  const [loading, setLoading] = useState(true)
   const { t } = useI18n()
 
   useEffect(() => {
-    client.get('/payouts/').then((res) => setPayouts(res.data ?? []))
-    client.get('/accounts/').then((res) => setAccounts(res.data ?? [])).catch(() => {})
+    Promise.allSettled([
+      client.get('/payouts/').then((res) => setPayouts(res.data ?? [])),
+      client.get('/accounts/').then((res) => setAccounts(res.data ?? [])),
+    ]).finally(() => setLoading(false))
   }, [])
+
+  if (loading) return <Loading />
 
   return (
     <div className="page">

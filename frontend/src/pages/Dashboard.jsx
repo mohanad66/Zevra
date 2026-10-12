@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmtCrypto } from '../components/Format'
+import Loading from '../components/Loading'
 import { TrendingUp, Wallet, Users, Trophy, ArrowDownToLine, Copy, Check, RefreshCw, Gift, Clock, Loader2 } from 'lucide-react'
 
 export default function Dashboard() {
@@ -38,7 +39,7 @@ export default function Dashboard() {
     loadWindows()
   }, [])
 
-  if (!data) return null
+  if (!data) return <Loading />
 
   async function claimWindow(id) {
     setClaiming(true)

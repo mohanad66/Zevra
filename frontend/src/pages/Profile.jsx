@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { client } from '../api/client'
 import { compressImage } from '../utils/image'
+import Loading from '../components/Loading'
 import { Camera, ShieldCheck, KeyRound, LogOut, Trash2, Plus, CheckCircle2 } from 'lucide-react'
 
 // KYC document types. ``value`` is the token stored by the API and shown in the
@@ -79,6 +80,7 @@ export default function Profile() {
   const [busy, setBusy] = useState(false)
   const [compressing, setCompressing] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState(null)
+  const [loading, setLoading] = useState(true)
   const ar = lang === 'ar'
 
   async function pickImage(file, apply) {
@@ -113,7 +115,7 @@ export default function Profile() {
     if (coinRes.data?.length) setAccForm((f) => ({ ...f, coin: f.coin ?? coinRes.data[0].id }))
   }
 
-  useEffect(() => { load().catch(() => {}) }, [])
+  useEffect(() => { load().catch(() => {}).finally(() => setLoading(false)) }, [])
 
   useEffect(() => {
     if (location.state?.kyc && kycRef.current) {
@@ -233,6 +235,8 @@ export default function Profile() {
       : kyc.status === 'pending'
         ? t('pf.kyc.pending')
         : t('pf.kyc.notSubmitted')
+
+  if (loading) return <Loading />
 
   return (
     <div className="page">

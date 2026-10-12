@@ -7,6 +7,7 @@ import { useI18n } from '../i18n'
 import { fmt } from '../components/Format'
 import { TrendingUp, CheckCircle2, Clipboard, Loader2 } from 'lucide-react'
 import { isKycRequiredError } from '../api/client'
+import Loading from '../components/Loading'
 
 // Networks the customer can pay on. Every enabled choice must match
 // _PLISIO_NETWORKS (TRC20 -> USDT_TRX, BEP20 -> USDT_BSC, ERC20 -> USDT) in
@@ -24,6 +25,7 @@ export default function Invest() {
   const { t } = useI18n()
   const [searchParams] = useSearchParams()
   const [coins, setCoins] = useState([])
+  const [coinsLoaded, setCoinsLoaded] = useState(false)
   const [coinId, setCoinId] = useState(null)
   const [amount, setAmount] = useState('')
   const [network, setNetwork] = useState(NETWORKS.find((n) => n.enabled).id)
@@ -42,7 +44,7 @@ export default function Invest() {
         const usdt = res.data.find((c) => String(c.symbol).toUpperCase() === 'USDT') || res.data[0]
         setCoinId(usdt.id)
       }
-    }).catch(() => {})
+    }).catch(() => {}).finally(() => setCoinsLoaded(true))
   }, [])
 
   useEffect(() => {
@@ -131,7 +133,10 @@ export default function Invest() {
     navigator.clipboard.writeText(text).then(() => toast(t('common.copied'), 'success')).catch(() => {})
   }
 
-  if (!coin) return <div className="page"><p className="muted">{t('invest.noCoins')}</p></div>
+  if (!coin) {
+    if (!coinsLoaded) return <Loading />
+    return <div className="page"><p className="muted">{t('invest.noCoins')}</p></div>
+  }
 
   if (phase === 'confirmed') {
     return (

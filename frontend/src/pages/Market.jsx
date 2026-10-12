@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmt, percentageClass } from '../components/Format'
 import { RefreshCw } from 'lucide-react'
+import Loading from '../components/Loading'
 
 export default function Market() {
   const [data, setData] = useState(null)
@@ -30,7 +31,7 @@ export default function Market() {
     return () => clearInterval(t2)
   }, [])
 
-  if (!data) return null
+  if (!data) return <Loading />
 
   return (
     <div className="page">

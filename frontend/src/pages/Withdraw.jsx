@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmtCrypto, StatusBadge } from '../components/Format'
 import { ArrowDownToLine, QrCode, Camera, X } from 'lucide-react'
+import Loading from '../components/Loading'
 
 // TRC20 / BEP20 / ETH20 withdrawals are created through Plisio (see
 // _PLISIO_NETWORKS in backend/api/services.py) and need a small native balance
@@ -33,6 +34,7 @@ export default function Withdraw() {
   const [address, setAddress] = useState('')
   const [network, setNetwork] = useState('TRC20')
   const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [qrOpen, setQrOpen] = useState(false)
   const qrDiv = useRef(null)
   const qrScan = useRef(null)
@@ -61,7 +63,7 @@ export default function Withdraw() {
     }
   }
 
-  useEffect(() => { loadData().catch(() => {}) }, [])
+  useEffect(() => { loadData().catch(() => {}).finally(() => setLoading(false)) }, [])
 
   useEffect(() => {
     if (!qrOpen) return
@@ -135,6 +137,8 @@ export default function Withdraw() {
   const netAmount = amount && !isNaN(parseFloat(amount))
     ? parseFloat(amount) * (1 - feePct / 100)
     : 0
+
+  if (loading) return <Loading />
 
   return (
     <div className="page">

@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmtCrypto } from '../components/Format'
 import { Copy, Check, Users, Star } from 'lucide-react'
+import Loading from '../components/Loading'
 
 export default function Referrals() {
   const [data, setData] = useState(null)
@@ -18,7 +19,7 @@ export default function Referrals() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (!data) return null
+  if (!data) return <Loading />
 
   const copy = () => {
     navigator.clipboard?.writeText(data.invite_code).then(() => {
