@@ -56,18 +56,15 @@ from api.services import (
     confirm_payment,
     create_payment_order,
     handle_gateway_webhook,
-    handle_payram_payment_webhook,
-    handle_payram_payout_webhook,
     verify_btcpay_signature,
     verify_nowpayments_signature,
-    verify_payram_signature,
     verify_cryptomus_signature,
     handle_cryptomus_webhook,
     verify_plisio_signature,
     handle_plisio_webhook,
     verify_webhook_signature,
     send_platform_to_user,
-    test_payram_connection,
+    test_plisio_connection,
     reconcile_gateway,
     payment_order_status,
     _withdrawal_order_ref,
@@ -517,8 +514,8 @@ class InvestStatusView(views.APIView):
     def get(self, request):
         """Poll the gateway for the current state of the user's payment order.
 
-        The checkout page polls this while the user pays so a payment PayRam
-        already filled is confirmed without the user ever leaving the site.
+        The checkout page polls this while the user pays so a payment Plisio
+        already completed is confirmed without the user ever leaving the site.
         """
         order_ref = (request.query_params.get("order_ref") or "").strip()
         if not order_ref:
@@ -546,8 +543,6 @@ class GatewayWebhookView(views.APIView):
         """Signed callback from the crypto payment/payout gateway.
 
         Signature schemes accepted (verified over the raw request body):
-          * ``X-Payram-Signature`` – HMAC-SHA256 keyed by the PayRam project
-            API key (payment + payout webhooks shared on this endpoint).
           * ``X-Gateway-Signature`` – HMAC-SHA256 over the raw body
             (PAYMENT_WEBHOOK_TOKEN) (legacy).
           * ``BTCPay-Sig``          – BTCPay Server webhook: ``sha256=<hex>``
@@ -559,14 +554,12 @@ class GatewayWebhookView(views.APIView):
             Plisio SECRET_KEY (see ``verify_plisio_signature``).
         """
         raw = request.body
-        sig_payram = request.META.get("HTTP_X_PAYRAM_SIGNATURE", "")
         sig_gateway = request.META.get("HTTP_X_GATEWAY_SIGNATURE", "")
         sig_btcpay = request.META.get("HTTP_BTCPAY_SIG", "")
         sig_nowpayments = request.META.get("HTTP_X_NOWPAYMENTS_SIG", "")
         data = _parse_webhook_body(raw)
         header_ok = (
-            bool(sig_payram and verify_payram_signature(raw, sig_payram))
-            or bool(sig_gateway and verify_webhook_signature(raw, sig_gateway))
+            bool(sig_gateway and verify_webhook_signature(raw, sig_gateway))
             or bool(sig_btcpay and verify_btcpay_signature(raw, sig_btcpay))
             or bool(sig_nowpayments and verify_nowpayments_signature(raw, sig_nowpayments))
         )
@@ -592,13 +585,7 @@ class GatewayWebhookView(views.APIView):
         elif plisio_ok:
             handled = handle_plisio_webhook(data)
         else:
-            event = str(data.get("event_type") or "").lower()
-            if event.startswith("payout."):
-                handled = handle_payram_payout_webhook(data)
-            elif data.get("reference_id") or data.get("invoice_id") or data.get("paymentState"):
-                handled = handle_payram_payment_webhook(data)
-            else:
-                handled = handle_gateway_webhook(data)
+            handled = handle_gateway_webhook(data)
         if handled:
             return response.Response({"status": "ok"})
         return response.Response({"status": "ignored"}, status=status.HTTP_200_OK)
@@ -925,24 +912,6 @@ class AdminPaymentSettingsView(views.APIView):
 
         wallets = CryptoAccount.objects.filter(is_platform=True).select_related("coin", "user")
 
-        def env_state(env):
-            base_key = (
-                PlatformSettings.S_PAYRAM_BASE_URL_PROD
-                if env == "production"
-                else PlatformSettings.S_PAYRAM_BASE_URL_TEST
-            )
-            api_key_setting = (
-                PlatformSettings.S_PAYRAM_API_KEY_PROD
-                if env == "production"
-                else PlatformSettings.S_PAYRAM_API_KEY_TEST
-            )
-            api_key = PlatformSettings.get(api_key_setting, "")
-            return {
-                "base_url": PlatformSettings.get(base_key, ""),
-                "api_key_masked": mask(api_key) if api_key else "",
-                "api_key_set": bool(api_key),
-            }
-
         return response.Response({
             "payment_mode": mode,
             "provider": {
@@ -962,12 +931,6 @@ class AdminPaymentSettingsView(views.APIView):
                 "success_url": PlatformSettings.get(
                     PlatformSettings.S_PAYMENT_SUCCESS_URL, ""
                 ),
-            },
-            "payram": {
-                "mode": PlatformSettings.get(PlatformSettings.S_PAYRAM_MODE, "test")
-                or "test",
-                "test": env_state("test"),
-                "production": env_state("production"),
             },
             "plisio": {
                 "api_key_masked": mask(plisio_api_key) if plisio_api_key else "",
@@ -995,14 +958,6 @@ class AdminPaymentSettingsView(views.APIView):
             )
         elif mode:
             return response.Response({"detail": tr("Invalid payment mode.", request)}, 400)
-        payram_mode = (request.data.get("payram_mode") or "").strip().lower()
-        if payram_mode in {"test", "production"}:
-            PlatformSettings.objects.update_or_create(
-                key=PlatformSettings.S_PAYRAM_MODE,
-                defaults={"value": payram_mode, "label": "PayRam environment: test | production"},
-            )
-        elif payram_mode:
-            return response.Response({"detail": tr("Invalid PayRam mode.", request)}, 400)
         for field_name, key, label in (
             ("provider_url", PlatformSettings.S_PAYMENT_PROVIDER_URL, "(legacy) provider API base URL"),
             ("provider_key", PlatformSettings.S_PAYMENT_PROVIDER_KEY, "(legacy) provider API key"),
@@ -1011,19 +966,10 @@ class AdminPaymentSettingsView(views.APIView):
             ("webhook_token", PlatformSettings.S_PAYMENT_WEBHOOK_TOKEN, "Webhook HMAC/secret"),
             ("callback_url", PlatformSettings.S_PAYMENT_CALLBACK_URL, "(legacy) Webhook callback URL"),
             ("success_url", PlatformSettings.S_PAYMENT_SUCCESS_URL, "Success redirect URL"),
-            ("payram_base_url_test", PlatformSettings.S_PAYRAM_BASE_URL_TEST, "PayRam test BASE_URL (Site URL)"),
-            ("payram_api_key_test", PlatformSettings.S_PAYRAM_API_KEY_TEST, "PayRam test project API key"),
-            ("payram_base_url_production", PlatformSettings.S_PAYRAM_BASE_URL_PROD, "PayRam production BASE_URL (Site URL)"),
-            ("payram_api_key_production", PlatformSettings.S_PAYRAM_API_KEY_PROD, "PayRam production project API key"),
             ("plisio_api_key", PlatformSettings.S_PLISIO_API_KEY, "Plisio SECRET_KEY (API » API settings)"),
         ):
             val = (request.data.get(field_name) or "").strip()
             if field_name in request.data and val:
-                PlatformSettings.objects.update_or_create(
-                    key=key, defaults={"value": val, "label": label}
-                )
-            val = (request.data.get(field_name) or "").strip()
-            if val:
                 PlatformSettings.objects.update_or_create(
                     key=key, defaults={"value": val, "label": label}
                 )
@@ -1059,7 +1005,7 @@ class AdminProviderTestView(views.APIView):
     permission_classes = [IsStaffPermission]
 
     def post(self, request):
-        ok, message = test_payram_connection()
+        ok, message = test_plisio_connection()
         return response.Response({"ok": ok, "message": message})
 
 

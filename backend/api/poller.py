@@ -1,8 +1,8 @@
 """Automatic gateway reconciliation poller.
 
-PayRam pushes webhooks for payments and payouts, but polling is kept as a
+Plisio pushes webhooks for payments and payouts, but polling is kept as a
 reliable fallback (missed webhooks, retry exhaustion, final confirmation of
-``processed``). This module runs ``reconcile_gateway()`` on a timer inside the
+``completed``). This module runs ``reconcile_gateway()`` on a timer inside the
 app process whenever ``payment_mode == "provider"`` — no external cron required.
 
 Controls (env vars):

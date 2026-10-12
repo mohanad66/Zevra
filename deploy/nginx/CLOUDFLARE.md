@@ -16,7 +16,7 @@
 #
 # Then in the Cloudflare dashboard:
 #   1. Add the zone (miyartrading.com) and proxy the A/AAAA records (orange
-#      cloud) for miyartrading.com, api.miyartrading.com, payram.miyartrading.com.
+#      cloud) for miyartrading.com and api.miyartrading.com.
 #   2. SSL/TLS -> mode: Full (strict). The origin keeps its certbot cert.
 #   3. Security -> WAF: enable the managed ruleset. Consider Bot Fight Mode and
 #      a rate-limiting rule on /api/auth/* and /api/withdraw/*.

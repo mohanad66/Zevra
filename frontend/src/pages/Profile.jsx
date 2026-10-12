@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { client } from '../api/client'
-import { Camera, ShieldCheck, KeyRound, LogOut, Trash2, Plus } from 'lucide-react'
+import { Camera, ShieldCheck, KeyRound, LogOut, Trash2, Plus, CheckCircle2 } from 'lucide-react'
 
 // KYC document types. ``value`` is the token stored by the API and shown in the
 // admin review table, so it stays English; ``labelKey`` is what the visitor sees.
@@ -14,10 +14,56 @@ const DOC_TYPES = [
   { value: 'Driver license', labelKey: 'pf.kyc.docTypeDriverLicense' },
 ]
 
+// A KYC upload tile: turns green and shows a small thumbnail of the chosen
+// image right next to the slot label (front / back / selfie) as soon as a file
+// is picked, so the visitor gets clear visual feedback before submitting.
+function KycFileField({ label, required, file, onPick, hint, ar }) {
+  const [preview, setPreview] = useState(null)
+
+  useEffect(() => {
+    if (!file) {
+      setPreview(null)
+      return undefined
+    }
+    const url = URL.createObjectURL(file)
+    setPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+
+  const selected = Boolean(file)
+
+  return (
+    <label className={`file-drop ${selected ? 'file-drop-ok' : ''}`}>
+      <span className="file-drop-head">
+        {label}{required ? ` (${hint})` : ''}
+        {selected ? <CheckCircle2 size={18} className="file-drop-check" /> : null}
+      </span>
+      <input
+        type="file"
+        accept="image/*"
+        required={required}
+        onChange={(e) => onPick(e.target.files[0] || null)}
+      />
+      <span className="file-drop-body">
+        {preview ? (
+          <img className="file-thumb" src={preview} alt="" />
+        ) : (
+          <span className="file-thumb file-thumb-empty">
+            {ar ? 'لا يوجد' : 'none'}
+          </span>
+        )}
+        <small className={selected ? 'file-drop-name' : 'muted'}>
+          {selected ? file.name : ar ? 'صورة JPG / PNG' : 'JPG / PNG'}
+        </small>
+      </span>
+    </label>
+  )
+}
+
 export default function Profile() {
   const { user, refreshUser, logout, apiError } = useAuth()
   const { toast } = useToast()
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const location = useLocation()
   const kycRef = useRef(null)
   const [profile, setProfile] = useState({ email: '', first_name: '', last_name: '', phone: '' })
@@ -29,6 +75,7 @@ export default function Profile() {
   const [coins, setCoins] = useState([])
   const [accForm, setAccForm] = useState({ coin: null, address: '', label: '' })
   const [busy, setBusy] = useState(false)
+  const ar = lang === 'ar'
 
   async function load() {
     const [kycRes, accRes, coinRes] = await Promise.all([
@@ -255,22 +302,30 @@ export default function Profile() {
               </select>
             </label>
             <div className="row2">
-              <label className="file-drop">
-                {t('pf.kyc.docFront')} ({t('pf.required')})
-                <input type="file" accept="image/*" required onChange={(e) => setKycForm({ ...kycForm, document_front: e.target.files[0] })} />
-                <small>{kycForm.document_front?.name || 'JPG / PNG'}</small>
-              </label>
-              <label className="file-drop">
-                {t('pf.kyc.docBack')}
-                <input type="file" accept="image/*" onChange={(e) => setKycForm({ ...kycForm, document_back: e.target.files[0] })} />
-                <small>{kycForm.document_back?.name || t('pf.optional')}</small>
-              </label>
+              <KycFileField
+                label={t('pf.kyc.docFront')}
+                required
+                hint={t('pf.required')}
+                file={kycForm.document_front}
+                onPick={(f) => setKycForm({ ...kycForm, document_front: f })}
+                ar={ar}
+              />
+              <KycFileField
+                label={t('pf.kyc.docBack')}
+                hint={t('pf.optional')}
+                file={kycForm.document_back}
+                onPick={(f) => setKycForm({ ...kycForm, document_back: f })}
+                ar={ar}
+              />
             </div>
-            <label className="file-drop">
-              {t('pf.kyc.selfie')} ({t('pf.required')})
-              <input type="file" accept="image/*" required onChange={(e) => setKycForm({ ...kycForm, selfie: e.target.files[0] })} />
-              <small>{kycForm.selfie?.name || 'JPG / PNG'}</small>
-            </label>
+            <KycFileField
+              label={t('pf.kyc.selfie')}
+              required
+              hint={t('pf.required')}
+              file={kycForm.selfie}
+              onPick={(f) => setKycForm({ ...kycForm, selfie: f })}
+              ar={ar}
+            />
             <button className="btn primary block" disabled={busy}>{busy ? t('pf.kyc.submitting') : t('pf.kyc.submit')}</button>
           </form>
         )}

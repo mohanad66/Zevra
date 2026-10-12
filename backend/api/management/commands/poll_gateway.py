@@ -4,7 +4,7 @@ from api.services import reconcile_gateway
 
 
 class Command(BaseCommand):
-    help = "Poll PayRam for the final status of outstanding payments and withdrawals."
+    help = "Poll Plisio for the final status of outstanding payments and withdrawals."
 
     def handle(self, *args, **options):
         paid_orders, transfers = reconcile_gateway()

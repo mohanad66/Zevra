@@ -11,12 +11,10 @@ import { ArrowDownToLine, QrCode, Camera, X } from 'lucide-react'
 
 // TRC20 / BEP20 / ETH20 withdrawals are created through Plisio (see
 // _PLISIO_NETWORKS in backend/api/services.py) and need a small native balance
-// on Plisio for gas (TRX / BNB / ETH). POL is hidden while PayRam has no hot
-// wallet assigned to the project — Plisio has no Polygon chain, so POL payouts
-// can only run on PayRam. Re-enable it once the EVM hot wallet is assigned.
+// on Plisio for gas (TRX / BNB / ETH). Polygon is not offered: Plisio has no
+// Polygon chain.
 const NETWORKS = [
   { id: 'TRC20', label: 'USDT · TRC20', hint: 'Tron', enabled: true },
-  { id: 'POL', label: 'USDT · POL', hint: 'Polygon', enabled: false },
   { id: 'ETH20', label: 'USDT · ETH20', hint: 'Ethereum', enabled: true },
   { id: 'BEP20', label: 'USDT · BEP20', hint: 'BNB Chain', enabled: true },
 ]

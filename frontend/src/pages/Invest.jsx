@@ -5,17 +5,14 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { fmt } from '../components/Format'
-import { TrendingUp, CheckCircle2, Clipboard, Loader2, ShieldCheck } from 'lucide-react'
+import { TrendingUp, CheckCircle2, Clipboard, Loader2 } from 'lucide-react'
 import { isKycRequiredError } from '../api/client'
 
 // Networks the customer can pay on. Every enabled choice must match
-// _PLISIO_NETWORKS (TRC20 -> USDT_TRX, BEP20 -> USDT_BSC, ERC20 -> USDT) or
-// _PAYRAM_DEPOSIT_CODES (POL -> POLYGON, BASE, BTC) in services.py; the backend
-// picks the provider from the label. PayRam has no BNB deposit chain, which is
-// why BEP20 goes to Plisio.
+// _PLISIO_NETWORKS (TRC20 -> USDT_TRX, BEP20 -> USDT_BSC, ERC20 -> USDT) in
+// services.py; the backend maps the label to the Plisio currency.
 const NETWORKS = [
   { id: 'TRC20', label: 'TRC20', hint: 'Tron', enabled: true },
-  { id: 'POL', label: 'POL', hint: 'Polygon', enabled: true },
   { id: 'ERC20', label: 'ETH20', hint: 'Ethereum', enabled: true },
   { id: 'BEP20', label: 'BEP20', hint: 'BNB Chain', enabled: true },
 ]
@@ -24,7 +21,7 @@ export default function Invest() {
   const { apiError } = useAuth()
   const { toast } = useToast()
   const navigate = useNavigate()
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const [searchParams] = useSearchParams()
   const [coins, setCoins] = useState([])
   const [coinId, setCoinId] = useState(null)
@@ -34,7 +31,6 @@ export default function Invest() {
   const [payment, setPayment] = useState(null)
   const [busy, setBusy] = useState(false)
   const coinParam = (searchParams.get('coin') || '').trim()
-  const ar = lang === 'ar'
 
   useEffect(() => {
     client.get('/coins/').then((res) => {
@@ -97,10 +93,10 @@ export default function Invest() {
     } finally { setBusy(false) }
   }
 
-  // Provider checkout: the gateway (PayRam deposit address / Plisio invoice)
-  // confirms the payment on its side. We poll our backend so the user stays on
-  // this page — "checking" until the gateway reports the order filled, then we
-  // switch to the confirmed screen automatically.
+  // Provider checkout: the gateway (Plisio invoice) confirms the payment on its
+  // side. We poll our backend so the user stays on this page — "checking" until
+  // the gateway reports the order filled, then we switch to the confirmed
+  // screen automatically.
   useEffect(() => {
     if (phase !== 'checkout' || payment?.payment_mode !== 'provider' || !payment?.order_ref) return
     let active = true

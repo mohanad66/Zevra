@@ -720,12 +720,6 @@ class PlatformSettings(models.Model):
     S_PAYMENT_CALLBACK_URL = "payment_callback_url"
     S_PAYMENT_STORE_ID = "payment_store_id"
     S_PAYMENT_SUCCESS_URL = "payment_success_url"
-    # PayRam (self-hosted crypto gateway) — test and production environments
-    S_PAYRAM_MODE = "payram_mode"
-    S_PAYRAM_BASE_URL_TEST = "payram_base_url_test"
-    S_PAYRAM_API_KEY_TEST = "payram_api_key_test"
-    S_PAYRAM_BASE_URL_PROD = "payram_base_url_production"
-    S_PAYRAM_API_KEY_PROD = "payram_api_key_production"
 
     S_CRYPTOMUS_MERCHANT_ID = "cryptomus_merchant_id"
     S_CRYPTOMUS_PAYMENT_KEY = "cryptomus_payment_key"

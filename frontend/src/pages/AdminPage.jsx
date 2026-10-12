@@ -54,9 +54,8 @@ export default function AdminPage() {
   const [previewImg, setPreviewImg] = useState(null)
   const [previewLabel, setPreviewLabel] = useState('')
 
-  const [pay, setPay] = useState({ payment_mode: 'simulate', provider: {}, payram: {}, platform_wallets: [] })
-  const [providerForm, setProviderForm] = useState({ provider_url: '', provider_key: '', provider_secret: '', store_id: '', webhook_token: '', callback_url: '', success_url: '' })
-  const [payramForm, setPayramForm] = useState({ payram_mode: 'test', payram_base_url_test: '', payram_api_key_test: '', payram_base_url_production: '', payram_api_key_production: '' })
+  const [pay, setPay] = useState({ payment_mode: 'simulate', provider: {}, plisio: {}, platform_wallets: [] })
+  const [providerForm, setProviderForm] = useState({ provider_url: '', provider_key: '', provider_secret: '', store_id: '', webhook_token: '', callback_url: '', success_url: '', plisio_api_key: '' })
   const [walletForm, setWalletForm] = useState({ wallet_coin_id: '', wallet_address: '', wallet_label: 'Platform wallet' })
   const [streetBusy, setStreetBusy] = useState(false)
   const [testResult, setTestResult] = useState('')
@@ -314,10 +313,9 @@ export default function AdminPage() {
     e.preventDefault()
     setStreetBusy(true)
     try {
-      await client.post('/admin/payments/', { ...providerForm, ...payramForm })
+      await client.post('/admin/payments/', { ...providerForm })
       toast(t('admin.toast.providerSaved'), 'success')
-      setProviderForm({ provider_url: '', provider_key: '', store_id: '', webhook_token: '', callback_url: '', success_url: '' })
-      setPayramForm({ payram_mode: 'test', payram_base_url_test: '', payram_api_key_test: '', payram_base_url_production: '', payram_api_key_production: '' })
+      setProviderForm({ provider_url: '', provider_key: '', provider_secret: '', store_id: '', webhook_token: '', callback_url: '', success_url: '', plisio_api_key: '' })
       loadPayments()
     } catch (err) { toast(apiError(err), 'error') }
     finally { setStreetBusy(false) }
@@ -452,7 +450,7 @@ export default function AdminPage() {
     finally { setAnnSending(false) }
   }
 
-  const prf = (e) => setPayramForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+  const pf = (e) => setProviderForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const wf = (e) => setWalletForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const mf = (e) => setModal((p) => ({ ...p, [e.target.name]: e.target.value }))
 
@@ -705,41 +703,18 @@ export default function AdminPage() {
 
           <div className="card form" style={{ padding: '1rem' }}>
             <h3 style={{ marginBottom: '0.6rem' }}>{t('admin.pay.provider')}</h3>
-            <p className="muted small" style={{ marginBottom: '0.6rem' }}>{t('admin.pay.payramHint')}</p>
-            <div className="row2">
-              <label>
-                {t('admin.pay.payramMode')}
-                <select name="payram_mode" value={payramForm.payram_mode || pay.payram.mode || 'test'} onChange={prf}>
-                  <option value="test">{t('admin.pay.payramTest')}</option>
-                  <option value="production">{t('admin.pay.payramProduction')}</option>
-                </select>
-              </label>
-            </div>
-            {['test', 'production'].map((env) => {
-              const cfg = env === 'production' ? pay.payram?.production : pay.payram?.test
-              const baseField = env === 'production' ? 'payram_base_url_production' : 'payram_base_url_test'
-              const keyField = env === 'production' ? 'payram_api_key_production' : 'payram_api_key_test'
-              return (
-                <fieldset key={env} className="card" style={{ marginTop: '0.6rem', padding: '0.6rem', border: '1px solid var(--line)' }}>
-                  <legend style={{ fontWeight: 600, padding: '0 0.4rem' }}>
-                    {env === 'production' ? t('admin.pay.payramProduction') : t('admin.pay.payramTest')}
-                  </legend>
-                  <label>
-                    {t('admin.pay.baseUrl')}
-                    <input name={baseField} value={payramForm[baseField]} onChange={prf} placeholder={cfg?.base_url || 'https://pay.example.com'} />
-                  </label>
-                  <label>
-                    {t('admin.pay.apiKey')} <span className="muted small">{t('admin.pay.apiKeyHint')}</span>
-                    <input name={keyField} type="password" value={payramForm[keyField]} onChange={prf} placeholder={cfg?.api_key_masked || t('admin.pay.notSet')} />
-                  </label>
-                </fieldset>
-              )
-            })}
+            <p className="muted small" style={{ marginBottom: '0.6rem' }}>{t('admin.pay.plisioHint')}</p>
+            <label>
+              {t('admin.pay.apiKey')}
+              <input name="plisio_api_key" type="password" value={providerForm.plisio_api_key || ''} onChange={pf}
+                placeholder={pay.plisio?.api_key_masked || t('admin.pay.notSet')} />
+            </label>
+            <p className="muted small" style={{ marginTop: '0.2rem' }}>{t('admin.pay.apiKeyHint')}</p>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
               <button className="btn primary" disabled={streetBusy} onClick={saveProvider}>{t('admin.pay.saveProvider')}</button>
               <button className="btn ghost" onClick={testConnection}><PlugZap size={14} /> {t('admin.pay.testConnection')}</button>
             </div>
-            <p className="muted small" style={{ marginTop: '0.5rem' }}>{t('admin.pay.webhookUrl')}: <code>/api/gateway/webhook/</code></p>
+            <p className="muted small" style={{ marginTop: '0.5rem' }}>{t('admin.pay.webhookUrl')}: <code>/api/gateway/webhook/?json=true</code></p>
             {testResult && <p className={`small ${testResult.startsWith('OK') ? 'pos' : 'neg'}`}>{testResult}</p>}
           </div>
 

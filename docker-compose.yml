@@ -7,15 +7,15 @@
 #   main    Vite build + nginx       built from ./frontend, serves the app,
 #                                    proxies /api -> api, /static+/media
 #
-# Optional PayRam gateway lives in docker-compose.payram.yml; deploy together:
+# Optional gateway overrides live in separate compose files; deploy together.
+# Payments/payouts run through Plisio (hosted) — no extra container is needed.
 #
 #   cp .env.docker.example .env      # then fill in real values
-#   docker compose -f docker-compose.yml -f docker-compose.payram.yml up -d --build
+#   docker compose up -d --build
 #
 # TLS: the host nginx (with certbot certs) terminates HTTPS and routes:
 #   miyartrading.com / www  -> 127.0.0.1:8080 (main)
 #   api.miyartrading.com    -> 127.0.0.1:8000 (api)
-#   payram.miyartrading.com -> 127.0.0.1:8081 (payram)
 # Drop-in vhost config: deploy/nginx/miyartrading.conf
 # ---------------------------------------------------------------------------
 

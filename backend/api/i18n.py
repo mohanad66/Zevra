@@ -94,7 +94,6 @@ AR = {
     "Investment submitted. Awaiting payment and admin confirmation.": "تم إرسال طلب الاستثمار. في انتظار الدفع وتأكيد الإدارة.",
     "The withdrawal could not be sent and your balance was refunded. Our payment provider is temporarily unable to process this network. Please try again shortly or contact support.": "تعذّر إرسال السحب وتم ردّ رصيدك بالكامل. مزوّد الدفع لدينا لا يستطيع معالجة هذه الشبكة حالياً. يُرجى المحاولة بعد قليل أو التواصل مع الدعم.",
     "Invalid payment mode.": "وضع الدفع غير صالح.",
-    "Invalid PayRam mode.": "وضع PayRam غير صالح.",
     "Bad signature.": "توقيع الطلب غير صالح.",
     "Invalid payload.": "بيانات الطلب غير صالحة.",
     "Platform settings updated.": "تم تحديث إعدادات المنصة.",
@@ -112,7 +111,6 @@ AR = {
     "Cryptomus is not configured (merchant id / payment key).": "خدمة الدفع غير مُهيأة حالياً. يُرجى المحاولة بعد قليل.",
     "Plisio created the invoice but returned no txn_id or invoice_url.": "تعذّر إنشاء طلب الدفع. يُرجى المحاولة مرة أخرى.",
     "Cryptomus created the payment but returned no address or checkout url.": "تعذّر إنشاء طلب الدفع. يُرجى المحاولة مرة أخرى.",
-    "PayRam created the payment but returned no reference_id.": "تعذّر إنشاء طلب الدفع. يُرجى المحاولة مرة أخرى.",
 
     # KYC review (admin)
     "Submission not found.": "طلب التوثيق غير موجود.",
