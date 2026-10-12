@@ -149,6 +149,7 @@ export default function Withdraw() {
         </div>
       </div>
 
+<<<<<<< HEAD
       {/*
       
       {settings?.kyc_required_to_withdraw && (
@@ -157,6 +158,13 @@ export default function Withdraw() {
         </div>
       )}
       */}
+=======
+      {/* {settings?.kyc_required_to_withdraw && (
+        <div className="notice warn">
+          {t('wd.kycRequired')} <Link to="/profile">{t('wd.getVerified')}</Link>
+        </div>
+      )} */}
+>>>>>>> aa89602 (edit)
 
       {settings?.withdraw_cooldown_hours > 0 && (
         <div className="notice">
