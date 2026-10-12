@@ -277,13 +277,22 @@ class PayoutWindow(models.Model):
         return f"{self.title} ({self.percent}%)"
 
     def activate(self):
-        """Open the window. Returns the updated ``ends_at``."""
+        """Open the window. Returns the updated ``ends_at``.
+
+        A fresh open starts a new claim round: when the window had been closed
+        (or had already expired), previous claims are cleared so every user can
+        claim once again. Re-activating a window that is still open keeps the
+        existing claims, so nobody can double-claim by re-triggering it.
+        """
+        was_open = self.is_open
         now = timezone.now()
         self.activated_at = now
         self.opens_at = now
         self.ends_at = now + timedelta(hours=self.duration_hours)
         self.is_active = True
         self.save(update_fields=["activated_at", "opens_at", "ends_at", "is_active"])
+        if not was_open:
+            self.claimed_by.clear()
         return self.ends_at
 
     def close(self):
