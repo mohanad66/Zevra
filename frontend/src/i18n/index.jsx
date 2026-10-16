@@ -84,6 +84,7 @@ export function I18nProvider({ children }) {
   const changeLang = (next) => {
     setLang(next)
     storeLang(next)
+    window.location.reload()
   }
 
   if (!lang) return null
