@@ -1,3 +1,4 @@
+import re
 import secrets
 import uuid
 from calendar import monthrange
@@ -13,6 +14,61 @@ from django.db.models import F, Sum
 from django.utils import timezone
 
 VALID_NETWORKS = ["TRC20", "ERC20", "BEP20", "BEP2", "TON"]
+
+# A fixed UTC offset, e.g. "UTC", "UTC+3", "UTC-2", "UTC+5:30", "GMT+1".
+_UTC_OFFSET_RE = re.compile(r"^(?:UTC|GMT)([+-])(\d{1,2})(?::(\d{2}))?$", re.IGNORECASE)
+_UTC_ZEROS = {"UTC", "GMT", "Z", "UTC+0", "UTC-0", "UTC+00:00", "UTC-00:00"}
+
+
+def parse_utc_offset(spec):
+    """Parse a timezone spec into a ``timedelta`` offset, or ``None``.
+
+    Accepts ``UTC``/``GMT``/``Z`` (zero offset) and ``UTC±H``/``UTC±HH:MM``
+    forms. Returns ``None`` for anything else (e.g. an IANA zone name).
+    """
+    s = (spec or "").strip().upper().replace(" ", "")
+    if not s:
+        return None
+    if s in _UTC_ZEROS:
+        return timedelta(0)
+    m = _UTC_OFFSET_RE.match(s)
+    if not m:
+        return None
+    sign = 1 if m.group(1) == "+" else -1
+    hours = int(m.group(2))
+    minutes = int(m.group(3)) if m.group(3) else 0
+    if hours > 14 or minutes > 59:
+        return None
+    return sign * timedelta(hours=hours, minutes=minutes)
+
+
+def _is_valid_timezone(spec):
+    """True when the spec is a usable UTC offset or IANA zone name."""
+    if parse_utc_offset(spec) is not None:
+        return True
+    try:
+        ZoneInfo(spec)
+        return True
+    except Exception:  # noqa: BLE001 - invalid/unknown zone
+        return False
+
+
+def _tzinfo_from_spec(spec):
+    """Resolve a timezone spec to a ``tzinfo`` (fixed offset or ZoneInfo)."""
+    from datetime import timezone as dt_timezone
+
+    offset = parse_utc_offset(spec)
+    if offset is not None:
+        return dt_timezone(offset)
+    try:
+        return ZoneInfo(spec)
+    except Exception:  # noqa: BLE001 - fall back to UTC
+        return dt_timezone.utc
+
+
+def tz_display_name(spec):
+    """Human-readable label for a stored timezone spec."""
+    return (spec or "UTC").strip() or "UTC"
 
 
 class UserManager(DjangoUserManager):
@@ -363,7 +419,7 @@ class PayoutWindow(models.Model):
         """
         if self.mode != self.MODE_AUTOMATIC or not self.open_time:
             return None
-        tz = ZoneInfo(PlatformSettings.get_timezone())
+        tz = PlatformSettings.timezone_tzinfo()
         now = (now or timezone.now()).astimezone(tz)
         today = now.date()
 
@@ -913,27 +969,26 @@ class PlatformSettings(models.Model):
         return str(val).lower() in {"1", "true", "yes", "on"}
 
     @classmethod
-    def get_timezone(cls, default=None):
-        """Return the configured IANA timezone name, validated against zoneinfo.
+    def get_timezone(cls, default="UTC"):
+        """Return the stored platform timezone spec.
 
-        Falls back to Django's ``TIME_ZONE`` setting (then ``default``) when the
-        stored value is missing or not a valid timezone identifier.
+        The spec is either a fixed UTC offset (``UTC``, ``UTC+3``, ``UTC-2``,
+        ``UTC+5:30``) or an IANA zone name (``Asia/Riyadh``). Falls back to
+        Django's ``TIME_ZONE`` (then ``default``) when the stored value is
+        missing or invalid.
         """
-        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
         name = (cls.get(cls.S_TIMEZONE) or "").strip()
-        candidates = [name] if name else []
-        candidates.append(getattr(settings, "TIME_ZONE", "") or "")
-        candidates.append(default or "UTC")
-        for candidate in candidates:
-            if not candidate:
-                continue
-            try:
-                ZoneInfo(candidate)
-                return candidate
-            except (ZoneInfoNotFoundError, ValueError, KeyError):
-                continue
-        return "UTC"
+        if name and _is_valid_timezone(name):
+            return name
+        setting = getattr(settings, "TIME_ZONE", "") or ""
+        if _is_valid_timezone(setting):
+            return setting
+        return default
+
+    @classmethod
+    def timezone_tzinfo(cls, spec=None):
+        """Resolve a stored timezone spec (offset or IANA name) to a tzinfo."""
+        return _tzinfo_from_spec(spec if spec is not None else cls.get_timezone())
 
     @classmethod
     def cooldown_total_hours(cls, prefix, default_parts=(0, 0, 0, 0)):

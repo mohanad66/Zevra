@@ -509,8 +509,8 @@ export const ar = {
   'admin.win.closeTime': 'ÙØºÙÙ Ø¹ÙØ¯',
   'admin.win.weekday': 'ÙÙÙ Ø§ÙØ£Ø³Ø¨ÙØ¹',
   'admin.win.dayOfMonth': 'ÙÙÙ Ø§ÙØ´ÙØ±',
-  'admin.win.scheduleUtc': 'ÇáÃæÞÇÊ ÈÊæÞíÊ {{tz}}.',
-  'admin.win.scheduleTz': 'ÇáÃæÞÇÊ ÈÊæÞíÊ {{tz}}.',
+  'admin.win.scheduleUtc': 'الأوقات بتوقيت {{tz}}.',
+  'admin.win.scheduleTz': 'الأوقات بتوقيت {{tz}}.',
   'admin.win.saveSchedule': 'Ø­ÙØ¸ Ø§ÙØ¬Ø¯ÙÙ',
   'admin.win.weekdays': 'Ø§ÙØ§Ø«ÙÙÙ,Ø§ÙØ«ÙØ§Ø«Ø§Ø¡,Ø§ÙØ£Ø±Ø¨Ø¹Ø§Ø¡,Ø§ÙØ®ÙÙØ³,Ø§ÙØ¬ÙØ¹Ø©,Ø§ÙØ³Ø¨Øª,Ø§ÙØ£Ø­Ø¯',
   'admin.win.closeWindow': 'Ø¥ØºÙØ§Ù Ø§ÙÙØ§ÙØ°Ø©',

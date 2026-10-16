@@ -2,7 +2,6 @@ import json
 import os
 from datetime import timedelta
 from decimal import Decimal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from django.core.cache import cache
@@ -30,6 +29,7 @@ from api.models import (
     User,
     Wallet,
     Withdrawal,
+    _is_valid_timezone,
 )
 from api.serializers import (
     InvestmentInputSerializer,
@@ -1838,46 +1838,17 @@ PLATFORM_SETTINGS_META = [
     ("min_withdrawal_amount", "num", "Minimum withdrawal"),
     ("bonus_payout_percent", "num", "Bonus payout (%)"),
     ("default_lang", "str", "Default language (en/ar)"),
-    ("timezone", "tz", "Platform timezone (IANA name, e.g. Asia/Riyadh)"),
+    ("timezone", "tz", "Platform timezone (UTC offset, e.g. UTC+3)"),
 ]
 
-# IANA timezones offered in the admin UI. The scheduler interprets payout-window
-# times in the platform timezone, so admins running a regional platform pick
-# their country's zone here instead of relying on the server's TIME_ZONE.
-SUPPORTED_TIMEZONES = [
-    "UTC",
-    "Asia/Riyadh",
-    "Asia/Dubai",
-    "Asia/Qatar",
-    "Asia/Kuwait",
-    "Asia/Bahrain",
-    "Asia/Muscat",
-    "Asia/Baghdad",
-    "Asia/Damascus",
-    "Asia/Beirut",
-    "Asia/Amman",
-    "Asia/Jerusalem",
-    "Asia/Gaza",
-    "Asia/Hebron",
-    "Asia/Aden",
-    "Africa/Cairo",
-    "Africa/Khartoum",
-    "Africa/Tripoli",
-    "Africa/Algiers",
-    "Africa/Casablanca",
-    "Africa/Tunis",
-    "Europe/Istanbul",
-    "Asia/Tehran",
-    "Asia/Karachi",
-    "Asia/Kolkata",
-    "Europe/London",
-    "Europe/Paris",
-    "Europe/Berlin",
-    "Europe/Moscow",
-    "America/New_York",
-    "America/Chicago",
-    "America/Los_Angeles",
-]
+# Fixed UTC offsets offered in the admin UI. The scheduler interprets payout-
+# window times in the platform timezone, so admins pick their region's offset
+# (e.g. UTC+3 for Riyadh/Damascus) instead of relying on the server's TIME_ZONE.
+SUPPORTED_TIMEZONES = (
+    ["UTC"]
+    + [f"UTC+{h}" for h in range(1, 15)]
+    + [f"UTC-{h}" for h in range(1, 13)]
+)
 
 
 class AdminPlatformSettingsView(views.APIView):
@@ -1920,9 +1891,7 @@ class AdminPlatformSettingsView(views.APIView):
         )
             elif ktype == "tz":
                 candidate = str(value).strip()[:60]
-                try:
-                    ZoneInfo(candidate)
-                except (ZoneInfoNotFoundError, ValueError, KeyError):
+                if not _is_valid_timezone(candidate):
                     return response.Response(
                         {"detail": tr("Invalid timezone: {key}.", request, key=value)}, 400
                     )
