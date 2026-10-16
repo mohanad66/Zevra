@@ -29,11 +29,6 @@ export default function Payouts() {
           <p>{t('po.subtitle')}</p>
         </div>
       </div>
-
-      <div className="notice">
-        {t('po.notice')}
-      </div>
-
       {accounts.length === 0 && (
         <div className="notice warn">
           {t('po.noAccounts')} <Link to="/profile">{t('po.addAccount')} →</Link>
