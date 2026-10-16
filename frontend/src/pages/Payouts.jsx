@@ -29,11 +29,11 @@ export default function Payouts() {
           <p>{t('po.subtitle')}</p>
         </div>
       </div>
-      {accounts.length === 0 && (
+      {/* {accounts.length === 0 && (
         <div className="notice warn">
           {t('po.noAccounts')} <Link to="/profile">{t('po.addAccount')} →</Link>
         </div>
-      )}
+      )} */}
 
       {payouts.length === 0 ? (
         <p className="muted">{t('po.noHistory')}</p>
