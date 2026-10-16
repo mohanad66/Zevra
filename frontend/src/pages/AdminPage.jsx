@@ -533,7 +533,7 @@ export default function AdminPage() {
                   <div className="muted small" style={{ marginTop: '0.15rem' }}>
                     {t('admin.win.percent')}: {windows[0].percent}% · {t('admin.win.duration')}: {windows[0].duration_hours}h · {windows[0].mode === 'automatic' ? t('admin.win.modeAutomatic') : t('admin.win.modeManual')}
                     {windows[0].mode === 'automatic' && windows[0].open_time && (
-                      <span> · {windows[0].open_time.slice(0, 5)}{windows[0].close_time ? `-${windows[0].close_time.slice(0, 5)}` : ''} UTC</span>
+                       <span> · {windows[0].open_time.slice(0, 5)}{windows[0].close_time ? `-${windows[0].close_time.slice(0, 5)}` : ''} {windows[0].schedule_label && (windows[0].schedule_label.match(/\(([^)]+)\)$/)?.[1] || plats?.timezone || 'UTC')}</span>
                     )}
                     {!windows[0].is_open && windows[0].target_mode === 'specific' && windows[0].target_users.length > 0 && (
                       <span style={{ color: 'var(--accent)' }}>{t('admin.win.targeted', { count: windows[0].target_users.length })}</span>
@@ -623,7 +623,7 @@ export default function AdminPage() {
                     <input type="number" min="1" max="31" value={sched.day_of_month} onChange={(e) => setSched((s) => ({ ...s, day_of_month: Number(e.target.value) }))} />
                   </label>
                 )}
-                <p className="muted small" style={{ margin: 0 }}>{t('admin.win.scheduleUtc')}</p>
+                <p className="muted small" style={{ margin: 0 }}>{t('admin.win.scheduleTz', { tz: plats?.timezone || (windows[0] && windows[0].schedule_label && (windows[0].schedule_label.match(/\(([^)]+)\)$/)?.[1] || 'UTC')) })}</p>
               </>
             )}
             <div>
@@ -1094,6 +1094,19 @@ export default function AdminPage() {
                     >
                       <option value="en">EN — English</option>
                       <option value="ar">عربي — العربية</option>
+                    </select>
+                  ) : m.type === 'tz' ? (
+                    <select
+                      value={draft !== undefined ? draft : String(cur)}
+                      onChange={(e) => setPlatDraft((p) => ({ ...p, [m.key]: e.target.value }))}
+                      className={dirty ? 'input-highlight' : ''}
+                    >
+                      {(plats._timezones || []).map((z) => (
+                        <option key={z} value={z}>{z}</option>
+                      ))}
+                      {cur && !(plats._timezones || []).includes(cur) && (
+                        <option value={cur}>{cur}</option>
+                      )}
                     </select>
                   ) : m.type === 'bool' ? (
                     <select

@@ -3,7 +3,9 @@ import uuid
 from calendar import monthrange
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
 from django.db import models, transaction
@@ -353,13 +355,16 @@ class PayoutWindow(models.Model):
     def current_occurrence(self, now=None):
         """Return ``(start, end)`` for the scheduled occurrence covering ``now``.
 
-        Only automatic windows with an ``open_time`` are scheduled. ``end`` falls
-        on the next day when ``close_time`` is not after ``open_time`` (an
+        Only automatic windows with an ``open_time`` are scheduled. Times are
+        interpreted in the platform's configured timezone (``PlatformSettings``
+        ``timezone``, falling back to Django's ``TIME_ZONE``). ``end`` falls on
+        the next day when ``close_time`` is not after ``open_time`` (an
         overnight window). Returns ``None`` when the window is not open now.
         """
         if self.mode != self.MODE_AUTOMATIC or not self.open_time:
             return None
-        now = timezone.localtime(now or timezone.now())
+        tz = ZoneInfo(PlatformSettings.get_timezone())
+        now = (now or timezone.now()).astimezone(tz)
         today = now.date()
 
         if self.frequency == self.FREQ_WEEKLY:
@@ -390,13 +395,14 @@ class PayoutWindow(models.Model):
             return ""
         open_str = self.open_time.strftime("%H:%M")
         close_str = (self.close_time or self.open_time).strftime("%H:%M")
+        tz_name = PlatformSettings.get_timezone()
         if self.frequency == self.FREQ_WEEKLY:
             days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
             day = days[self.weekday] if self.weekday is not None else "Mon"
-            return f"{day} {open_str}-{close_str} (UTC)"
+            return f"{day} {open_str}-{close_str} ({tz_name})"
         if self.frequency == self.FREQ_MONTHLY:
-            return f"Day {self.day_of_month or 1} {open_str}-{close_str} (UTC)"
-        return f"Daily {open_str}-{close_str} (UTC)"
+            return f"Day {self.day_of_month or 1} {open_str}-{close_str} ({tz_name})"
+        return f"Daily {open_str}-{close_str} ({tz_name})"
 
     def broadcast_open(self, created_by=None):
         """Notify users that a (scheduled) payout window is now open."""
@@ -878,6 +884,7 @@ class PlatformSettings(models.Model):
     S_CRYPTOMUS_PAYOUT_KEY = "cryptomus_payout_key"
     S_PLISIO_API_KEY = "plisio_api_key"
     S_DEFAULT_LANG = "default_lang"
+    S_TIMEZONE = "timezone"
 
     def __str__(self):
         return f"{self.key}={self.value}"
@@ -904,6 +911,29 @@ class PlatformSettings(models.Model):
     def get_bool(cls, key, default=False):
         val = cls.get(key, "1" if default else "0")
         return str(val).lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def get_timezone(cls, default=None):
+        """Return the configured IANA timezone name, validated against zoneinfo.
+
+        Falls back to Django's ``TIME_ZONE`` setting (then ``default``) when the
+        stored value is missing or not a valid timezone identifier.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        name = (cls.get(cls.S_TIMEZONE) or "").strip()
+        candidates = [name] if name else []
+        candidates.append(getattr(settings, "TIME_ZONE", "") or "")
+        candidates.append(default or "UTC")
+        for candidate in candidates:
+            if not candidate:
+                continue
+            try:
+                ZoneInfo(candidate)
+                return candidate
+            except (ZoneInfoNotFoundError, ValueError, KeyError):
+                continue
+        return "UTC"
 
     @classmethod
     def cooldown_total_hours(cls, prefix, default_parts=(0, 0, 0, 0)):
@@ -935,6 +965,7 @@ class PlatformSettings(models.Model):
             "withdraw_fee_percent": cls.get_decimal(cls.S_WITHDRAW_FEE_PERCENT, 1),
             "min_withdrawal": cls.get_decimal(cls.S_MIN_WITHDRAWAL, 10),
             "default_lang": cls.get(cls.S_DEFAULT_LANG, "en"),
+            "timezone": cls.get_timezone(),
         }
 
 
@@ -959,3 +990,4 @@ def default_referral_levels():
         PlatformSettings.S_REFERRAL_L2: "0.5",
         PlatformSettings.S_REFERRAL_L3: "0.25",
     }
+

@@ -2,6 +2,7 @@ import json
 import os
 from datetime import timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from django.core.cache import cache
@@ -1649,6 +1650,7 @@ class PublicSettings:
             "min_withdrawal": settings_map["min_withdrawal"],
             "withdraw_fee_percent": settings_map["withdraw_fee_percent"],
             "default_lang": settings_map.get("default_lang", "en"),
+            "timezone": settings_map.get("timezone", "UTC"),
         }
 
 
@@ -1836,6 +1838,45 @@ PLATFORM_SETTINGS_META = [
     ("min_withdrawal_amount", "num", "Minimum withdrawal"),
     ("bonus_payout_percent", "num", "Bonus payout (%)"),
     ("default_lang", "str", "Default language (en/ar)"),
+    ("timezone", "tz", "Platform timezone (IANA name, e.g. Asia/Riyadh)"),
+]
+
+# IANA timezones offered in the admin UI. The scheduler interprets payout-window
+# times in the platform timezone, so admins running a regional platform pick
+# their country's zone here instead of relying on the server's TIME_ZONE.
+SUPPORTED_TIMEZONES = [
+    "UTC",
+    "Asia/Riyadh",
+    "Asia/Dubai",
+    "Asia/Qatar",
+    "Asia/Kuwait",
+    "Asia/Bahrain",
+    "Asia/Muscat",
+    "Asia/Baghdad",
+    "Asia/Damascus",
+    "Asia/Beirut",
+    "Asia/Amman",
+    "Asia/Jerusalem",
+    "Asia/Gaza",
+    "Asia/Hebron",
+    "Asia/Aden",
+    "Africa/Cairo",
+    "Africa/Khartoum",
+    "Africa/Tripoli",
+    "Africa/Algiers",
+    "Africa/Casablanca",
+    "Africa/Tunis",
+    "Europe/Istanbul",
+    "Asia/Tehran",
+    "Asia/Karachi",
+    "Asia/Kolkata",
+    "Europe/London",
+    "Europe/Paris",
+    "Europe/Berlin",
+    "Europe/Moscow",
+    "America/New_York",
+    "America/Chicago",
+    "America/Los_Angeles",
 ]
 
 
@@ -1850,12 +1891,15 @@ class AdminPlatformSettingsView(views.APIView):
                 data[key] = PlatformSettings.get_bool(key, False)
             elif ktype == "num":
                 data[key] = PlatformSettings.get_decimal(key, 0)
+            elif ktype == "tz":
+                data[key] = PlatformSettings.get_timezone()
             else:
                 data[key] = raw or "en"
         data["_meta"] = [
             {"key": key, "type": ktype, "label": label}
             for key, ktype, label in PLATFORM_SETTINGS_META
         ]
+        data["_timezones"] = SUPPORTED_TIMEZONES
         return response.Response(data)
 
     def post(self, request):
@@ -1874,6 +1918,15 @@ class AdminPlatformSettingsView(views.APIView):
                     return response.Response(
             {"detail": tr("Invalid numeric value for {key}.", request, key=key)}, 400
         )
+            elif ktype == "tz":
+                candidate = str(value).strip()[:60]
+                try:
+                    ZoneInfo(candidate)
+                except (ZoneInfoNotFoundError, ValueError, KeyError):
+                    return response.Response(
+                        {"detail": tr("Invalid timezone: {key}.", request, key=value)}, 400
+                    )
+                val = candidate
             else:
                 val = str(value).strip()[:40] or "en"
             PlatformSettings.objects.update_or_create(

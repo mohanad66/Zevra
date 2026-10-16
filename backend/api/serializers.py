@@ -482,6 +482,7 @@ class PayoutWindowSerializer(serializers.ModelSerializer):
     claimed_count = serializers.SerializerMethodField()
     eligible_count = serializers.SerializerMethodField()
     total_granted = serializers.SerializerMethodField()
+    schedule_label = serializers.SerializerMethodField()
     target_users = serializers.PrimaryKeyRelatedField(
         many=True, required=False, queryset=User.objects.all()
     )
@@ -494,12 +495,16 @@ class PayoutWindowSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "percent", "coin", "coin_symbol", "duration_hours",
             "mode", "frequency", "open_time", "close_time", "weekday", "day_of_month",
+            "schedule_label",
             "target_mode", "target_users", "target_emails", "is_active", "is_open", "time_left_hours",
             "activated_at", "opens_at", "ends_at",
             "claimed_count", "eligible_count", "total_granted", "created_at",
         ]
         read_only_fields = ["is_active", "activated_at", "opens_at", "ends_at",
                             "claimed_count", "eligible_count", "total_granted", "created_at"]
+
+    def get_schedule_label(self, obj):
+        return obj.schedule_label()
 
     def get_is_open(self, obj):
         return obj.is_open
