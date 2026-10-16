@@ -310,7 +310,7 @@ export default function Profile() {
         {!kyc.kyc_verified && (
           <form onSubmit={submitKyc}>
             <h3 style={{ marginTop: '.5rem' }}>{t('pf.kyc.formTitle')}</h3>
-            <div className="notice" style={{ backgroundColor: 'rgba(206,167,77,.08)', borderColor: 'rgba(206,167,77,.35)' }}>
+            <div className="notice">
               {t('pf.kyc.namesNote')}
             </div>
             <div className="row2">

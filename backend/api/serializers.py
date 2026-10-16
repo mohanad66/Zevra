@@ -493,6 +493,7 @@ class PayoutWindowSerializer(serializers.ModelSerializer):
         model = PayoutWindow
         fields = [
             "id", "title", "percent", "coin", "coin_symbol", "duration_hours",
+            "mode", "frequency", "open_time", "close_time", "weekday", "day_of_month",
             "target_mode", "target_users", "target_emails", "is_active", "is_open", "time_left_hours",
             "activated_at", "opens_at", "ends_at",
             "claimed_count", "eligible_count", "total_granted", "created_at",

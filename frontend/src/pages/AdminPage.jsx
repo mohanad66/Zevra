@@ -41,6 +41,8 @@ export default function AdminPage() {
   const [pickSel, setPickSel] = useState(new Set())
   const [pickQ, setPickQ] = useState('')
   const [pickBusy, setPickBusy] = useState(false)
+  const [sched, setSched] = useState({ mode: 'manual', frequency: 'daily', open_time: '', close_time: '', weekday: 0, day_of_month: 1 })
+  const [schedBusy, setSchedBusy] = useState(false)
 
   const [balanceUser, setBalanceUser] = useState(null)
   const [banUser, setBanUser] = useState(null)
@@ -85,7 +87,32 @@ export default function AdminPage() {
     try {
       const res = await client.get('/admin/payout-windows/')
       setWindows(res.data)
+      const w = res.data[0]
+      if (w) {
+        setSched({
+          mode: w.mode || 'manual',
+          frequency: w.frequency || 'daily',
+          open_time: (w.open_time || '').slice(0, 5),
+          close_time: (w.close_time || '').slice(0, 5),
+          weekday: w.weekday ?? 0,
+          day_of_month: w.day_of_month ?? 1,
+        })
+      }
     } catch (err) { toast(apiError(err), 'error') }
+  }
+
+  async function saveSchedule() {
+    setSchedBusy(true)
+    try {
+      const payload = { ...sched }
+      const current = windows[0]
+      const res = current
+        ? await client.post(`/admin/payout-windows/${current.id}/toggle/`, payload)
+        : await client.post('/admin/payout-windows/', payload)
+      toast(res.data.message, 'success')
+      loadWindows()
+    } catch (err) { toast(apiError(err), 'error') }
+    finally { setSchedBusy(false) }
   }
 
   async function loadUsers() {
@@ -504,13 +531,16 @@ export default function AdminPage() {
                 <div>
                   <strong style={{ fontSize: '1.05rem' }}>{windows[0].title}</strong>
                   <div className="muted small" style={{ marginTop: '0.15rem' }}>
-                    {t('admin.win.percent')}: {windows[0].percent}% · {t('admin.win.duration')}: {windows[0].duration_hours}h
+                    {t('admin.win.percent')}: {windows[0].percent}% · {t('admin.win.duration')}: {windows[0].duration_hours}h · {windows[0].mode === 'automatic' ? t('admin.win.modeAutomatic') : t('admin.win.modeManual')}
+                    {windows[0].mode === 'automatic' && windows[0].open_time && (
+                      <span> · {windows[0].open_time.slice(0, 5)}{windows[0].close_time ? `-${windows[0].close_time.slice(0, 5)}` : ''} UTC</span>
+                    )}
                     {!windows[0].is_open && windows[0].target_mode === 'specific' && windows[0].target_users.length > 0 && (
                       <span style={{ color: 'var(--accent)' }}>{t('admin.win.targeted', { count: windows[0].target_users.length })}</span>
                     )}
                   </div>
                 </div>
-                <span className={`pill ${windows[0].is_active ? 'pill-active' : ''}`} style={{ background: windows[0].is_active ? 'var(--accent)' : 'var(--muted-bg)', color: windows[0].is_active ? '#fff' : 'var(--muted)', fontSize: '0.75rem' }}>
+                <span className={`pill ${windows[0].is_active ? 'pill-active' : ''}`} style={{ background: windows[0].is_active ? 'var(--accent)' : 'var(--panel2)', color: windows[0].is_active ? '#fff' : 'var(--muted)', fontSize: '0.75rem' }}>
                   {windows[0].is_active ? t('admin.win.open') : t('admin.win.closed')}
                 </span>
               </div>
@@ -552,6 +582,56 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+
+          <div className="card" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '1rem' }}>
+            <strong style={{ fontSize: '1rem' }}>{t('admin.win.schedule')}</strong>
+            <p className="muted small" style={{ margin: 0 }}>{t('admin.win.scheduleHint')}</p>
+            <div className="row-grid">
+              <label>{t('admin.win.mode')}
+                <select value={sched.mode} onChange={(e) => setSched((s) => ({ ...s, mode: e.target.value }))}>
+                  <option value="manual">{t('admin.win.modeManual')}</option>
+                  <option value="automatic">{t('admin.win.modeAutomatic')}</option>
+                </select>
+              </label>
+              <label>{t('admin.win.frequency')}
+                <select value={sched.frequency} disabled={sched.mode !== 'automatic'} onChange={(e) => setSched((s) => ({ ...s, frequency: e.target.value }))}>
+                  <option value="daily">{t('admin.win.freqDaily')}</option>
+                  <option value="weekly">{t('admin.win.freqWeekly')}</option>
+                  <option value="monthly">{t('admin.win.freqMonthly')}</option>
+                </select>
+              </label>
+            </div>
+            {sched.mode === 'automatic' && (
+              <>
+                <div className="row-grid">
+                  <label>{t('admin.win.openTime')}
+                    <input type="time" value={sched.open_time} onChange={(e) => setSched((s) => ({ ...s, open_time: e.target.value }))} />
+                  </label>
+                  <label>{t('admin.win.closeTime')}
+                    <input type="time" value={sched.close_time} onChange={(e) => setSched((s) => ({ ...s, close_time: e.target.value }))} />
+                  </label>
+                </div>
+                {sched.frequency === 'weekly' && (
+                  <label>{t('admin.win.weekday')}
+                    <select value={sched.weekday} onChange={(e) => setSched((s) => ({ ...s, weekday: Number(e.target.value) }))}>
+                      {t('admin.win.weekdays').split(',').map((d, i) => (<option key={i} value={i}>{d}</option>))}
+                    </select>
+                  </label>
+                )}
+                {sched.frequency === 'monthly' && (
+                  <label>{t('admin.win.dayOfMonth')}
+                    <input type="number" min="1" max="31" value={sched.day_of_month} onChange={(e) => setSched((s) => ({ ...s, day_of_month: Number(e.target.value) }))} />
+                  </label>
+                )}
+                <p className="muted small" style={{ margin: 0 }}>{t('admin.win.scheduleUtc')}</p>
+              </>
+            )}
+            <div>
+              <button className="btn primary" disabled={schedBusy} onClick={saveSchedule}>
+                <Clock size={14} /> {t('admin.win.saveSchedule')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1165,7 +1245,7 @@ export default function AdminPage() {
           style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
           onClick={closePreview}
         >
-          <div style={{ background: 'var(--card-bg, #fff)', borderRadius: 10, padding: '1rem', maxWidth: '92vw', maxHeight: '88vh' }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ background: 'var(--panel)', borderRadius: 10, padding: '1rem', maxWidth: '92vw', maxHeight: '88vh' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
               <strong>{previewLabel}</strong>
               <button className="btn ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={closePreview}><X size={16} /></button>

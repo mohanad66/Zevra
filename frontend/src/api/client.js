@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { getStoredLang } from '../i18n'
+import { getCookie, setCookie, removeCookie } from '../utils/storage'
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/+$/, '')
 
@@ -13,18 +14,18 @@ const REFRESH_KEY = 'miyartrading_refresh'
 
 export const tokenStore = {
   get access() {
-    return localStorage.getItem(TOKEN_KEY)
+    return getCookie(TOKEN_KEY)
   },
   get refresh() {
-    return localStorage.getItem(REFRESH_KEY)
+    return getCookie(REFRESH_KEY)
   },
   set tokens({ access, refresh }) {
-    if (access) localStorage.setItem(TOKEN_KEY, access)
-    if (refresh) localStorage.setItem(REFRESH_KEY, refresh)
+    if (access) setCookie(TOKEN_KEY, access)
+    if (refresh) setCookie(REFRESH_KEY, refresh)
   },
   clear() {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(REFRESH_KEY)
+    removeCookie(TOKEN_KEY)
+    removeCookie(REFRESH_KEY)
   },
 }
 

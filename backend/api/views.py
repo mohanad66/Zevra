@@ -1120,6 +1120,82 @@ def _windows_config_for(request):
     return percent, duration, None
 
 
+def _parse_time(raw):
+    """Parse "HH:MM" (or "HH:MM:SS") into a ``datetime.time``."""
+    from datetime import time as dtime
+
+    if isinstance(raw, dtime):
+        return raw
+    parts = str(raw).strip().split(":")
+    if len(parts) < 2:
+        raise ValueError("bad time")
+    return dtime(int(parts[0]), int(parts[1]))
+
+
+SCHEDULE_FIELDS = ("mode", "frequency", "open_time", "close_time", "weekday", "day_of_month")
+
+
+def _apply_schedule_fields(window, data):
+    """Validate and assign the payout-window schedule fields.
+
+    Returns an error string, or ``None`` on success. Only keys present in
+    ``data`` are touched, so a config update can change a single field.
+    """
+    if "mode" in data:
+        mode = str(data.get("mode") or "").strip().lower()
+        if mode not in dict(PayoutWindow.MODE):
+            return "Invalid mode."
+        window.mode = mode
+    if "frequency" in data:
+        freq = str(data.get("frequency") or "").strip().lower()
+        if freq not in dict(PayoutWindow.FREQUENCY):
+            return "Invalid frequency."
+        window.frequency = freq
+    for field in ("open_time", "close_time"):
+        if field in data:
+            raw = data.get(field)
+            if raw in (None, ""):
+                setattr(window, field, None)
+            else:
+                try:
+                    setattr(window, field, _parse_time(raw))
+                except (TypeError, ValueError):
+                    return "Invalid time; use HH:MM."
+    if "weekday" in data:
+        raw = data.get("weekday")
+        if raw in (None, ""):
+            window.weekday = None
+        else:
+            try:
+                wd = int(raw)
+            except (TypeError, ValueError):
+                return "Invalid weekday."
+            if not 0 <= wd <= 6:
+                return "Invalid weekday."
+            window.weekday = wd
+    if "day_of_month" in data:
+        raw = data.get("day_of_month")
+        if raw in (None, ""):
+            window.day_of_month = None
+        else:
+            try:
+                dom = int(raw)
+            except (TypeError, ValueError):
+                return "Invalid day of month."
+            if not 1 <= dom <= 31:
+                return "Invalid day of month."
+            window.day_of_month = dom
+
+    if window.mode == PayoutWindow.MODE_AUTOMATIC:
+        if not window.open_time:
+            return "Automatic windows need an open time."
+        if window.frequency == PayoutWindow.FREQ_WEEKLY and window.weekday is None:
+            return "Weekly windows need a weekday."
+        if window.frequency == PayoutWindow.FREQ_MONTHLY and window.day_of_month is None:
+            return "Monthly windows need a day of month."
+    return None
+
+
 def _activate_window(window, request):
     """Close any other open payout window and open this one, notifying users."""
     PayoutWindow.objects.filter(is_active=True).exclude(pk=window.pk).update(
@@ -1136,8 +1212,8 @@ def _activate_window(window, request):
         user_ids = list(window.target_users.values_list("pk", flat=True))
     Notification.broadcast(
         Notification.TYPE_PAYOUT,
-        title=f"New daily payout window: {window.title}",
-        title_ar=f"نافذة دفعات يومية جديدة: {window.title}",
+        title=f"New payout window: {window.title}",
+        title_ar=f"نافذة دفعات جديدة: {window.title}",
         body=f"A {window.percent}% payout is now available for you to claim.",
         body_ar=f"دفعة بنسبة {window.percent}% متاحة الآن لك للمطالبة بها.",
         link="/payouts",
@@ -1209,6 +1285,13 @@ class AdminWindowsView(generics.ListAPIView):
                 PayoutWindow.TARGET_SPECIFIC if valid else PayoutWindow.TARGET_ALL
             )
             window.save(update_fields=["target_mode"])
+        schedule_changed = [f for f in SCHEDULE_FIELDS if f in data]
+        if schedule_changed:
+            err = _apply_schedule_fields(window, data)
+            if err:
+                window.delete()
+                return response.Response({"detail": tr(err, request)}, 400)
+            window.save(update_fields=schedule_changed)
         if bool(data.get("active")):
             return _activate_window(window, request)
         return response.Response(
@@ -1263,6 +1346,13 @@ class AdminWindowToggleView(views.APIView):
                     return response.Response({"detail": tr("target_user_ids must be a list of user ids.", request)}, 400)
                 window.save(update_fields=["target_mode"])
                 updated.append("target")
+            schedule_changed = [f for f in SCHEDULE_FIELDS if f in data]
+            if schedule_changed:
+                err = _apply_schedule_fields(window, data)
+                if err:
+                    return response.Response({"detail": tr(err, request)}, 400)
+                window.save(update_fields=schedule_changed)
+                updated.extend(schedule_changed)
             if not updated:
                 return response.Response({"detail": tr("Nothing to update.", request)}, 400)
             return response.Response(

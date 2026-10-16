@@ -33,6 +33,9 @@ def _run():
     time.sleep(3)
     while not _poller_stop.wait(interval):
         try:
+            from django.core.cache import cache
+
+            from api.models import sync_payout_windows
             from api.services import reconcile_gateway
 
             paid, transfers = reconcile_gateway()
@@ -40,6 +43,12 @@ def _run():
                 _say(
                     f"finalized {paid} payment(s), {transfers} withdrawal/payout(s)"
                 )
+            # One poll tick per interval: the lock keeps the other gunicorn
+            # workers from repeating the payout-window sync.
+            if cache.add("payout:sync_lock", "1", max(10, interval - 5)):
+                opened = sync_payout_windows()
+                if opened:
+                    _say(f"opened payout window(s): {', '.join(opened)}")
         except Exception as exc:  # noqa: BLE001
             _say(f"poll error: {exc}")
             class_name = type(exc).__name__

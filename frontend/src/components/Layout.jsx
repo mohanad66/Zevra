@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom'
-import { LineChart, TrendingUp, ArrowDownToLine, Users, UserCircle, LogOut, Home, Shield, Bell, Globe, LifeBuoy } from 'lucide-react'
+import { LineChart, TrendingUp, ArrowDownToLine, Users, UserCircle, LogOut, Home, Shield, Bell, Globe, LifeBuoy, Sun, Moon } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
+import { useTheme } from '../theme'
 import { client } from '../api/client'
 
 function useNavLabels(t) {
@@ -113,6 +114,7 @@ function NotificationBell() {
 export default function Layout() {
   const { user, logout } = useAuth()
   const { lang, t, changeLang } = useI18n()
+  const { theme, toggleTheme } = useTheme()
   const links = useNavLabels(t)
 
   return (
@@ -135,6 +137,9 @@ export default function Layout() {
           )}
         </nav>
         <div className="topbar-right">
+          <button className="icon-btn" title={t('nav.theme')} onClick={toggleTheme}>
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           <button className="icon-btn lang-btn" title={t('nav.language')} onClick={() => changeLang(lang === 'ar' ? 'en' : 'ar')}>
             <Globe size={18} />
             <span className="lang-label">{lang === 'ar' ? 'EN' : 'عربي'}</span>

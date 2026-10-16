@@ -2,13 +2,14 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { en } from './en'
 import { ar } from './ar'
 import { client } from '../api/client'
+import { getCookie, setCookie } from '../utils/storage'
 
 const STORAGE_KEY = 'miyartrading_lang'
 export const DEFAULT_LANG = 'en'
 
 export function getStoredLang() {
   try {
-    return localStorage.getItem(STORAGE_KEY) || DEFAULT_LANG
+    return getCookie(STORAGE_KEY) || DEFAULT_LANG
   } catch {
     return DEFAULT_LANG
   }
@@ -16,7 +17,7 @@ export function getStoredLang() {
 
 export function hasStoredLang() {
   try {
-    return Boolean(localStorage.getItem(STORAGE_KEY))
+    return Boolean(getCookie(STORAGE_KEY))
   } catch {
     return false
   }
@@ -24,7 +25,7 @@ export function hasStoredLang() {
 
 export function storeLang(lang) {
   try {
-    localStorage.setItem(STORAGE_KEY, lang)
+    setCookie(STORAGE_KEY, lang)
   } catch {
     /* ignore storage errors */
   }

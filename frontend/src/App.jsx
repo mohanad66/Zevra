@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ToastProvider } from './components/Toast'
 import { I18nProvider, useI18n } from './i18n'
+import { ThemeProvider } from './theme'
 import ErrorBoundary from './components/ErrorBoundary'
 import Seo from './components/Seo'
 import Layout from './components/Layout'
@@ -58,43 +59,45 @@ function Loader() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <I18nProvider>
-        <AuthProvider>
-          <ToastProvider>
-            <BrowserRouter>
-              <Seo />
-              <Suspense fallback={<Loader />}>
-                <Routes>
-                  <Route path="/" element={<PublicOnly><Landing /></PublicOnly>} />
-                  <Route path="/login" element={<PublicOnly><Auth initialMode="login" /></PublicOnly>} />
-                  <Route path="/register" element={<PublicOnly><Auth initialMode="register" /></PublicOnly>} />
-                  <Route path="/terms" element={<Terms />} />
-                  <Route path="/privacy" element={<Privacy />} />
-                  <Route path="/kyc-policy" element={<KycPolicy />} />
-                  <Route element={<Protected />}>
-                    <Route element={<Layout />}>
-                      <Route path="/dashboard" element={<Dashboard />} />
-                      <Route path="/wallet/:coinId" element={<WalletDetail />} />
-                      <Route path="/market" element={<Market />} />
-                      <Route path="/invest" element={<Invest />} />
-                      <Route path="/withdraw" element={<Withdraw />} />
-                      <Route path="/payouts" element={<Payouts />} />
-                      <Route path="/referrals" element={<Referrals />} />
-                      <Route path="/profile" element={<Profile />} />
-                    </Route>
-                    <Route element={<StaffOnly />}>
+      <ThemeProvider>
+        <I18nProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <BrowserRouter>
+                <Seo />
+                <Suspense fallback={<Loader />}>
+                  <Routes>
+                    <Route path="/" element={<PublicOnly><Landing /></PublicOnly>} />
+                    <Route path="/login" element={<PublicOnly><Auth initialMode="login" /></PublicOnly>} />
+                    <Route path="/register" element={<PublicOnly><Auth initialMode="register" /></PublicOnly>} />
+                    <Route path="/terms" element={<Terms />} />
+                    <Route path="/privacy" element={<Privacy />} />
+                    <Route path="/kyc-policy" element={<KycPolicy />} />
+                    <Route element={<Protected />}>
                       <Route element={<Layout />}>
-                        <Route path="/admin" element={<AdminPage />} />
+                        <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/wallet/:coinId" element={<WalletDetail />} />
+                        <Route path="/market" element={<Market />} />
+                        <Route path="/invest" element={<Invest />} />
+                        <Route path="/withdraw" element={<Withdraw />} />
+                        <Route path="/payouts" element={<Payouts />} />
+                        <Route path="/referrals" element={<Referrals />} />
+                        <Route path="/profile" element={<Profile />} />
+                      </Route>
+                      <Route element={<StaffOnly />}>
+                        <Route element={<Layout />}>
+                          <Route path="/admin" element={<AdminPage />} />
+                        </Route>
                       </Route>
                     </Route>
-                  </Route>
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </Suspense>
-            </BrowserRouter>
-          </ToastProvider>
-        </AuthProvider>
-      </I18nProvider>
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Suspense>
+              </BrowserRouter>
+            </ToastProvider>
+          </AuthProvider>
+        </I18nProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   )
 }

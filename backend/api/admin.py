@@ -186,8 +186,8 @@ class InvestmentAdmin(admin.ModelAdmin):
 
 @admin.register(PayoutWindow)
 class PayoutWindowAdmin(admin.ModelAdmin):
-    list_display = ("title", "percent", "coin", "duration_hours", "is_active", "opens_at", "ends_at", "target_mode")
-    list_filter = ("is_active", "target_mode", "coin")
+    list_display = ("title", "percent", "coin", "mode", "frequency", "duration_hours", "is_active", "opens_at", "ends_at", "target_mode")
+    list_filter = ("is_active", "mode", "frequency", "target_mode", "coin")
     search_fields = ("title",)
     readonly_fields = ("activated_at", "opens_at", "ends_at", "created_at", "updated_at")
 

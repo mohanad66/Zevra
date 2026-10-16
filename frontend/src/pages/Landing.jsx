@@ -2,11 +2,13 @@ import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { client } from '../api/client'
 import { useI18n } from '../i18n'
-import { TrendingUp, Wallet, Users, ShieldCheck, LineChart, Smartphone, Globe } from 'lucide-react'
+import { useTheme } from '../theme'
+import { TrendingUp, Wallet, Users, ShieldCheck, LineChart, Smartphone, Globe, Sun, Moon } from 'lucide-react'
 
 export default function Landing() {
   const [market, setMarket] = useState([])
   const { t, lang, changeLang } = useI18n()
+  const { theme, toggleTheme } = useTheme()
 
   useEffect(() => {
     client.get('/market/').then((res) => setMarket(res.data.data?.slice(0, 5) ?? [])).catch(() => {})
@@ -29,6 +31,9 @@ export default function Landing() {
           <span className="brand-name">Miyar Trading</span>
         </div>
         <div className="landing-cta">
+          <button className="icon-btn" title={t('nav.theme')} onClick={toggleTheme}>
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           <button className="icon-btn lang-btn" title={t('nav.language')} onClick={() => changeLang(lang === 'ar' ? 'en' : 'ar')}>
             <Globe size={18} />
             <span className="lang-label">{lang === 'ar' ? 'EN' : 'عربي'}</span>

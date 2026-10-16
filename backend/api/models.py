@@ -1,7 +1,8 @@
 import secrets
 import uuid
-from datetime import timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from calendar import monthrange
+from datetime import datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
@@ -247,12 +248,34 @@ class PayoutWindow(models.Model):
         (TARGET_SPECIFIC, "Specific users"),
     ]
 
+    MODE_MANUAL = "manual"
+    MODE_AUTOMATIC = "automatic"
+    MODE = [
+        (MODE_MANUAL, "Manual"),
+        (MODE_AUTOMATIC, "Automatic"),
+    ]
+
+    FREQ_DAILY = "daily"
+    FREQ_WEEKLY = "weekly"
+    FREQ_MONTHLY = "monthly"
+    FREQUENCY = [
+        (FREQ_DAILY, "Daily"),
+        (FREQ_WEEKLY, "Weekly"),
+        (FREQ_MONTHLY, "Monthly"),
+    ]
+
     title = models.CharField(max_length=120)
     percent = models.DecimalField(max_digits=7, decimal_places=2)
     coin = models.ForeignKey(
         Coin, null=True, blank=True, on_delete=models.SET_NULL, related_name="payout_windows"
     )
     duration_hours = models.PositiveIntegerField(default=168)
+    mode = models.CharField(max_length=10, choices=MODE, default=MODE_MANUAL)
+    frequency = models.CharField(max_length=10, choices=FREQUENCY, default=FREQ_DAILY)
+    open_time = models.TimeField(null=True, blank=True)
+    close_time = models.TimeField(null=True, blank=True)
+    weekday = models.PositiveSmallIntegerField(null=True, blank=True)
+    day_of_month = models.PositiveSmallIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=False)
     opens_at = models.DateTimeField(null=True, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True)
@@ -315,6 +338,81 @@ class PayoutWindow(models.Model):
         if not self.is_open or self.ends_at is None:
             return 0
         return max(0.0, (self.ends_at - timezone.now()).total_seconds() / 3600)
+
+    def _monthly_anchor(self, today):
+        """Most recent occurrence date on/before ``today`` for a monthly window."""
+        day = self.day_of_month or 1
+        day = min(day, monthrange(today.year, today.month)[1])
+        anchor = today.replace(day=day)
+        if anchor > today:
+            prev = today.replace(day=1) - timedelta(days=1)
+            day = min(self.day_of_month or 1, monthrange(prev.year, prev.month)[1])
+            anchor = prev.replace(day=day)
+        return anchor
+
+    def current_occurrence(self, now=None):
+        """Return ``(start, end)`` for the scheduled occurrence covering ``now``.
+
+        Only automatic windows with an ``open_time`` are scheduled. ``end`` falls
+        on the next day when ``close_time`` is not after ``open_time`` (an
+        overnight window). Returns ``None`` when the window is not open now.
+        """
+        if self.mode != self.MODE_AUTOMATIC or not self.open_time:
+            return None
+        now = timezone.localtime(now or timezone.now())
+        today = now.date()
+
+        if self.frequency == self.FREQ_WEEKLY:
+            target = self.weekday if self.weekday is not None else 0
+            anchor = today - timedelta(days=(today.weekday() - target) % 7)
+        elif self.frequency == self.FREQ_MONTHLY:
+            anchor = self._monthly_anchor(today)
+        else:
+            anchor = today
+
+        close_t = self.close_time or self.open_time
+        for base in (anchor, anchor - timedelta(days=1)):
+            start = timezone.make_aware(
+                datetime.combine(base, self.open_time), now.tzinfo
+            )
+            end = timezone.make_aware(
+                datetime.combine(base, close_t), now.tzinfo
+            )
+            if end <= start:
+                end += timedelta(days=1)
+            if start <= now < end:
+                return start, end
+        return None
+
+    def schedule_label(self):
+        """Human-readable schedule summary for the admin UI."""
+        if self.mode != self.MODE_AUTOMATIC or not self.open_time:
+            return ""
+        open_str = self.open_time.strftime("%H:%M")
+        close_str = (self.close_time or self.open_time).strftime("%H:%M")
+        if self.frequency == self.FREQ_WEEKLY:
+            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            day = days[self.weekday] if self.weekday is not None else "Mon"
+            return f"{day} {open_str}-{close_str} (UTC)"
+        if self.frequency == self.FREQ_MONTHLY:
+            return f"Day {self.day_of_month or 1} {open_str}-{close_str} (UTC)"
+        return f"Daily {open_str}-{close_str} (UTC)"
+
+    def broadcast_open(self, created_by=None):
+        """Notify users that a (scheduled) payout window is now open."""
+        user_ids = None
+        if self.target_mode == self.TARGET_SPECIFIC:
+            user_ids = list(self.target_users.values_list("pk", flat=True))
+        Notification.broadcast(
+            Notification.TYPE_PAYOUT,
+            title=f"New payout window: {self.title}",
+            title_ar=f"نافذة دفعات جديدة: {self.title}",
+            body=f"A {self.percent}% payout is now available for you to claim.",
+            body_ar=f"دفعة بنسبة {self.percent}% متاحة الآن لك للمطالبة بها.",
+            link="/payouts",
+            user_ids=user_ids,
+            created_by=created_by,
+        )
 
     def is_eligible_for(self, user):
         if user.is_frozen or not user.is_active:
@@ -418,6 +516,51 @@ class PayoutWindow(models.Model):
                 return False, "You have no invested balance in this payout.", []
             locked.claimed_by.add(user)
             return True, "Payout claimed and added to your withdrawable balance.", grants
+
+
+def sync_payout_windows(now=None):
+    """Open/close automatic payout windows according to their schedule.
+
+    Idempotent and safe to run every poll tick. A window broadcasts to users
+    once per occurrence (tracked by comparing ``opens_at`` with the computed
+    occurrence start), and only one window is kept active at a time. Returns the
+    titles of windows that were (re)opened by this call.
+    """
+    now = now or timezone.now()
+    opened = []
+    activated = False
+    for window in PayoutWindow.objects.filter(mode=PayoutWindow.MODE_AUTOMATIC):
+        if not window.open_time:
+            continue
+        occurrence = window.current_occurrence(now)
+        if occurrence is None:
+            if window.is_active:
+                window.close()
+            continue
+        start, end = occurrence
+        if window.is_active and window.opens_at == start:
+            activated = True
+            continue
+        if activated:
+            # Only one window is active at a time; a later one already won this tick.
+            if window.is_active:
+                window.close()
+            continue
+        is_new_occurrence = window.opens_at != start
+        PayoutWindow.objects.filter(is_active=True).exclude(pk=window.pk).update(
+            is_active=False
+        )
+        window.activated_at = now
+        window.opens_at = start
+        window.ends_at = end
+        window.is_active = True
+        window.save(update_fields=["activated_at", "opens_at", "ends_at", "is_active"])
+        if is_new_occurrence:
+            window.claimed_by.clear()
+            window.broadcast_open()
+        opened.append(window.title)
+        activated = True
+    return opened
 
 
 class PaymentOrder(models.Model):
