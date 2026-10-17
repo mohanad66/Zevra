@@ -85,6 +85,7 @@ export const en = {
 
   // dashboard
   'dash.title': 'Dashboard',
+  'dash.payoutTitle' : 'Payout window',
   'dash.subtitle': 'Your portfolio at a glance.',
   'dash.portfolioValue': 'Portfolio value',
   'dash.totalWithdrawable': 'Total withdrawable',

@@ -81,7 +81,7 @@ export default function Dashboard() {
           <div className="payout-claim-head">
             <span className="payout-claim-icon"><Gift size={20} /></span>
             <div>
-              <h3>{w.title}</h3>
+              <h3>{t('dash.payoutTitle')}</h3>
               <p className="muted small" style={{ margin: 0 }}>
                 <Clock size={13} style={{ verticalAlign: 'middle' }} />
                 {t('dash.windowInfo', { hours: Math.round(w.time_left_hours), percent: w.percent, coins: w.coin_symbol ? ` ${w.coin_symbol}` : t('dash.allCoins') })}

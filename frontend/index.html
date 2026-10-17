@@ -1,81 +1,74 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-    <!-- Primary SEO -->
-    <title>Miyar Trading — Invest & Trade Stablecoins</title>
-    <meta
-      name="description"
-      content="Miyar Trading is a secure platform to invest in stablecoins, track live crypto market prices, and earn three-level referral rewards — on web, Android and iOS."
-    />
-    <meta
-      name="keywords"
-      content="Miyar Trading, stablecoin investment, crypto investing app, invest stablecoins, crypto referral rewards, live crypto prices, USDT investment"
-    />
-    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
-    <meta name="author" content="Miyar Trading" />
-    <meta name="publisher" content="Miyar Trading" />
-    <meta name="application-name" content="Miyar Trading" />
-    <meta name="theme-color" content="#0a0f1a" />
-    <meta name="color-scheme" content="dark light" />
-    <!-- canonical is set at runtime (Seo.jsx) until a public domain is chosen -->
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-    <!-- Set the theme before first paint so there is no light/dark flash -->
-    <script>
-      (function () {
-        function readCookie(name) {
-          var match = document.cookie.match(
-            new RegExp('(?:^|; )' + name + '=([^;]*)')
-          )
-          return match ? decodeURIComponent(match[1]) : null
-        }
-        try {
-          var t = readCookie('miyartrading_theme')
-          if (t !== 'light' && t !== 'dark') t = 'dark'
-          document.documentElement.dataset.theme = t
-          var m = document.querySelector('meta[name="theme-color"]')
-          if (m) m.setAttribute('content', t === 'light' ? '#f4f6fb' : '#0a0f1a')
-        } catch (e) {
-          document.documentElement.dataset.theme = 'dark'
-        }
-      })()
-    </script>
+  <!-- Primary SEO -->
+  <title>Miyar Trading — Invest & Trade Stablecoins</title>
+  <meta name="description"
+    content="Miyar Trading is a secure platform to invest in stablecoins, track live crypto market prices, and earn three-level referral rewards — on web, Android and iOS." />
+  <meta name="keywords"
+    content="Miyar Trading, stablecoin investment, crypto investing app, invest stablecoins, crypto referral rewards, live crypto prices, USDT investment" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+  <meta name="author" content="Miyar Trading" />
+  <meta name="publisher" content="Miyar Trading" />
+  <meta name="application-name" content="Miyar Trading" />
+  <meta name="theme-color" content="#0a0f1a" />
+  <meta name="color-scheme" content="dark light" />
+  <!-- canonical is set at runtime (Seo.jsx) until a public domain is chosen -->
 
-    <!-- Icons / PWA -->
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Miyar Trading" />
-    <meta name="mobile-web-app-capable" content="yes" />
+  <!-- Set the theme before first paint so there is no light/dark flash -->
+  <script>
+    (function () {
+      function readCookie(name) {
+        var match = document.cookie.match(
+          new RegExp('(?:^|; )' + name + '=([^;]*)')
+        )
+        return match ? decodeURIComponent(match[1]) : null
+      }
+      try {
+        var t = readCookie('miyartrading_theme')
+        if (t !== 'light' && t !== 'dark') t = 'dark'
+        document.documentElement.dataset.theme = t
+        var m = document.querySelector('meta[name="theme-color"]')
+        if (m) m.setAttribute('content', t === 'light' ? '#f4f6fb' : '#0a0f1a')
+      } catch (e) {
+        document.documentElement.dataset.theme = 'dark'
+      }
+    })()
+  </script>
 
-    <!-- Open Graph -->
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Miyar Trading" />
-    <meta property="og:title" content="Miyar Trading — Invest & Trade Stablecoins" />
-    <meta
-      property="og:description"
-      content="Invest in stablecoins, track live market prices, and earn three-level referral rewards in one secure mobile-friendly app."
-    />
-    <meta property="og:image" content="/icons/icon-512.png" />
-    <meta property="og:locale" content="en_US" />
-    <meta property="og:locale:alternate" content="ar_AR" />
-    <!-- TODO: add <meta property="og:url"> and switch og:image/twitter:image to an absolute URL once the domain is live. -->
+  <!-- Icons / PWA -->
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Miyar Trading" />
+  <meta name="mobile-web-app-capable" content="yes" />
 
-    <!-- Twitter / X -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Miyar Trading — Invest & Trade Stablecoins" />
-    <meta
-      name="twitter:description"
-      content="Invest in stablecoins, track live market prices, and earn three-level referral rewards in one secure app."
-    />
-    <meta name="twitter:image" content="/icons/icon-512.png" />
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Miyar Trading" />
+  <meta property="og:title" content="Miyar Trading — Invest & Trade Stablecoins" />
+  <meta property="og:description"
+    content="Invest in stablecoins, track live market prices, and earn three-level referral rewards in one secure mobile-friendly app." />
+  <meta property="og:image" content="/icons/icon-512.png" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:locale:alternate" content="ar_AR" />
+  <!-- TODO: add <meta property="og:url"> and switch og:image/twitter:image to an absolute URL once the domain is live. -->
 
-    <!-- Structured data (SEO + GEO: helps search and AI answer engines) -->
-    <script type="application/ld+json">
+  <!-- Twitter / X -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Miyar Trading — Invest & Trade Stablecoins" />
+  <meta name="twitter:description"
+    content="Invest in stablecoins, track live market prices, and earn three-level referral rewards in one secure app." />
+  <meta name="twitter:image" content="/icons/icon-512.png" />
+
+  <!-- Structured data (SEO + GEO: helps search and AI answer engines) -->
+  <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
@@ -133,19 +126,20 @@
         ]
       }
     </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <!-- 100% privacy-first analytics -->
-<script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
+</head>
 
-    <noscript>
-      <h1>Miyar Trading — Invest in stablecoins and earn rewards</h1>
-      <p>
-        Miyar Trading lets you invest in stablecoins such as USDT, track live crypto market prices,
-        and earn three-level referral rewards. Please enable JavaScript to use the app.
-      </p>
-    </noscript>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<body>
+  <div id="root"></div>
+
+  <noscript>
+    <h1>Miyar Trading — Invest in stablecoins and earn rewards</h1>
+    <p>
+      Miyar Trading lets you invest in stablecoins such as USDT, track live crypto market prices,
+      and earn three-level referral rewards. Please enable JavaScript to use the app.
+    </p>
+  </noscript>
+  <script type="module" src="/src/main.jsx"></script>
+  <script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
+</body>
+
 </html>

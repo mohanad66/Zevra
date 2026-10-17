@@ -84,6 +84,7 @@ export const ar = {
 
   // dashboard
   'dash.title': 'الرئيسية',
+  'dash.payoutTitle':'نافذة الدفع ',
   'dash.subtitle': 'محفظتك في نظرة واحدة.',
   'dash.portfolioValue': 'قيمة المحفظة',
   'dash.totalWithdrawable': 'إجمالي القابل للسحب',
