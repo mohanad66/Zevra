@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div id="content-main">
+  <div class="module" style="margin-bottom:16px;">
+    <h2>Analytics dashboards</h2>
+    <table style="width:auto;">
+      <tr>
+        <th style="width:auto;"><a href="{% url 'admin_payments_dashboard' %}">Payments &amp; Live Activity</a></th>
+        <td>Real provider-confirmed payments, growth, online users and their latest actions.</td>
+      </tr>
+      <tr>
+        <th style="width:auto;"><a href="{% url 'admin_balance_edits_dashboard' %}">Balance Edits</a></th>
+        <td>Balances that were edited (not really paid), who edited them, and most-edited users.</td>
+      </tr>
+    </table>
+  </div>
+  {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+</div>
+{% endblock %}

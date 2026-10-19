@@ -114,8 +114,20 @@ def distribute_referral_awards(investment):
             source_investment=investment,
         )
         wallet = Wallet.ensure(inviter, investment.coin)
+        old_withdrawable = wallet.withdrawable_balance
         wallet.withdrawable_balance += amount
         wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+        from api.models import BalanceAudit, record_balance_change
+
+        record_balance_change(
+            inviter,
+            investment.coin,
+            BalanceAudit.FIELD_WITHDRAWABLE,
+            old_withdrawable,
+            wallet.withdrawable_balance,
+            source=BalanceAudit.SRC_REFERRAL,
+            note=f"Referral L{level} award ({award.percent}%)",
+        )
         _notify_award(inviter, investment, award, first_award_for_investor)
         inviter = inviter.referred_by
 

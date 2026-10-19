@@ -26,10 +26,12 @@ from api.models import (
     PlatformSettings,
     PriceSnapshot,
     ReferralAward,
+    BalanceAudit,
     User,
     Wallet,
     Withdrawal,
     _is_valid_timezone,
+    record_balance_change,
 )
 from api.serializers import (
     InvestmentInputSerializer,
@@ -122,6 +124,10 @@ class LoginView(views.APIView):
             )
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
+        from api.activity import log_action, touch_presence
+
+        touch_presence(user, request, action="login", force=True)
+        log_action(user, request, action="login", status_code=200)
         refresh = RefreshToken.for_user(user)
         return response.Response(
             {
@@ -761,6 +767,8 @@ class AdminBalanceAdjustView(views.APIView):
             wallet = Wallet.objects.select_for_update().get_or_create(
                 user=user, coin=coin
             )[0]
+            old_invested = wallet.invested_balance
+            old_withdrawable = wallet.withdrawable_balance
             new_invested = wallet.invested_balance + invested_delta
             new_withdrawable = wallet.withdrawable_balance + withdrawable_delta
             if new_invested < 0 or new_withdrawable < 0:
@@ -771,6 +779,18 @@ class AdminBalanceAdjustView(views.APIView):
             wallet.withdrawable_balance = new_withdrawable
             wallet.save(update_fields=["invested_balance", "withdrawable_balance", "updated_at"])
             note = (request.data.get("note") or "").strip()
+            record_balance_change(
+                user, coin, BalanceAudit.FIELD_INVESTED,
+                old_invested, new_invested,
+                source=BalanceAudit.SRC_ADMIN_ADJUST, actor=request.user,
+                note=note or "Admin balance adjustment",
+            )
+            record_balance_change(
+                user, coin, BalanceAudit.FIELD_WITHDRAWABLE,
+                old_withdrawable, new_withdrawable,
+                source=BalanceAudit.SRC_ADMIN_ADJUST, actor=request.user,
+                note=note or "Admin balance adjustment",
+            )
             if withdrawable_delta != 0:
                 Payout.objects.create(
                     user=user,
@@ -1438,8 +1458,15 @@ class WithdrawalCreateView(views.APIView):
                 return response.Response(
                     {"amount": tr("Insufficient withdrawable balance.", request)}, status=400
                 )
+            old_withdrawable = wallet.withdrawable_balance
             wallet.withdrawable_balance -= amount
             wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+            record_balance_change(
+                user, coin, BalanceAudit.FIELD_WITHDRAWABLE,
+                old_withdrawable, wallet.withdrawable_balance,
+                source=BalanceAudit.SRC_WITHDRAWAL,
+                note=f"Withdrawal request {amount} {coin.symbol}",
+            )
             withdrawal = Withdrawal.objects.create(
                 user=user, coin=coin, address=address,
                 network=network, amount=amount, fee=fee,
@@ -1460,8 +1487,15 @@ class WithdrawalCreateView(views.APIView):
             except Exception as exc:  # noqa: BLE001
                 with transaction.atomic():
                     wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                    old_withdrawable = wallet.withdrawable_balance
                     wallet.withdrawable_balance += amount
                     wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+                    record_balance_change(
+                        user, coin, BalanceAudit.FIELD_WITHDRAWABLE,
+                        old_withdrawable, wallet.withdrawable_balance,
+                        source=BalanceAudit.SRC_WITHDRAWAL_REFUND,
+                        note=f"Withdrawal failed, refunded: {exc}",
+                    )
                     withdrawal.mark_failed(f"Payout failed: {exc}")
                 # The provider's raw error (HTTP code + JSON body) stays on the
                 # withdrawal record for support; the customer only sees a

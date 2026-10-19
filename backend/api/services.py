@@ -54,6 +54,21 @@ def _provider_setting(key, env_name, default=""):
     return default
 
 
+def _log_refund(withdrawal, old_withdrawable, reason=""):
+    """Audit a withdrawal refund (amount returned to the user's balance)."""
+    from api.models import BalanceAudit, record_balance_change
+
+    record_balance_change(
+        withdrawal.user,
+        withdrawal.coin,
+        BalanceAudit.FIELD_WITHDRAWABLE,
+        old_withdrawable,
+        old_withdrawable + withdrawal.amount,
+        source=BalanceAudit.SRC_WITHDRAWAL_REFUND,
+        note=reason or "Withdrawal refunded",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Modes / provider readiness
 # ---------------------------------------------------------------------------
@@ -381,8 +396,10 @@ def _handle_cryptomus_payout_webhook(order_id, data):
             return True
         if is_final:
             wallet = Wallet.ensure(wd.user, wd.coin)
+            old_withdrawable = wallet.withdrawable_balance
             wallet.withdrawable_balance += wd.amount
             wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+            _log_refund(wd, old_withdrawable, "Cryptomus payout failed")
             wd.status = Withdrawal.STATUS_FAILED
             wd.reject_reason = f"Cryptomus payout {status or 'failed'}."
             wd.save(update_fields=["status", "reject_reason", "updated_at"])
@@ -1149,8 +1166,10 @@ def reconcile_gateway():
                 from api.models import Wallet
 
                 wallet = Wallet.ensure(wd.user, wd.coin)
+                old_withdrawable = wallet.withdrawable_balance
                 wallet.withdrawable_balance += wd.amount
                 wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+                _log_refund(wd, old_withdrawable, "Gateway payout failed")
                 wd.status = Withdrawal.STATUS_FAILED
                 wd.reject_reason = f"Gateway payout {status.lower()}."
                 wd.save(update_fields=["status", "reject_reason", "updated_at"])

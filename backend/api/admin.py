@@ -6,6 +6,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from api.models import (
+    ActivityLog,
+    BalanceAudit,
     Coin,
     CryptoAccount,
     Investment,
@@ -20,6 +22,7 @@ from api.models import (
     User,
     Wallet,
     Withdrawal,
+    record_balance_change,
 )
 from api.referrals import referral_tree_counts
 from api.services import (
@@ -151,6 +154,31 @@ class WalletAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+    def save_model(self, request, obj, form, change):
+        """Audit balance edits made directly through the Django admin."""
+        old_invested = None
+        old_withdrawable = None
+        if change and obj.pk:
+            prev = Wallet.objects.filter(pk=obj.pk).first()
+            if prev is not None:
+                old_invested = prev.invested_balance
+                old_withdrawable = prev.withdrawable_balance
+        super().save_model(request, obj, form, change)
+        if old_invested is not None:
+            record_balance_change(
+                obj.user, obj.coin, BalanceAudit.FIELD_INVESTED,
+                old_invested, obj.invested_balance,
+                source=BalanceAudit.SRC_ADMIN_DIRECT, actor=request.user,
+                note="Django admin wallet edit",
+            )
+        if old_withdrawable is not None:
+            record_balance_change(
+                obj.user, obj.coin, BalanceAudit.FIELD_WITHDRAWABLE,
+                old_withdrawable, obj.withdrawable_balance,
+                source=BalanceAudit.SRC_ADMIN_DIRECT, actor=request.user,
+                note="Django admin wallet edit",
+            )
+
 
 @admin.register(Investment)
 class InvestmentAdmin(admin.ModelAdmin):
@@ -169,7 +197,7 @@ class InvestmentAdmin(admin.ModelAdmin):
     def confirm_investments(self, request, queryset):
         count = 0
         for inv in queryset.filter(status=Investment.STATUS_PENDING):
-            inv.confirm()
+            inv.confirm(source=BalanceAudit.SRC_ADMIN_CONFIRM, actor=request.user)
             order = getattr(inv, "payment_order", None)
             if order and order.status != PaymentOrder.STATUS_PAID:
                 order.mark_paid("admin")
@@ -250,8 +278,15 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 # means the user can immediately retry: leaving the amount
                 # debited here would let them withdraw the same funds twice.
                 wallet = WalletModel.ensure(wd.user, wd.coin)
+                old_withdrawable = wallet.withdrawable_balance
                 wallet.withdrawable_balance += Decimal(wd.amount)
                 wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+                record_balance_change(
+                    wd.user, wd.coin, BalanceAudit.FIELD_WITHDRAWABLE,
+                    old_withdrawable, wallet.withdrawable_balance,
+                    source=BalanceAudit.SRC_WITHDRAWAL_REFUND, actor=request.user,
+                    note=f"Withdrawal transfer failed: {exc}",
+                )
                 wd.status = Withdrawal.STATUS_FAILED
                 wd.reject_reason = f"Transfer failed: {exc}"
                 wd.save(update_fields=["status", "reject_reason", "updated_at"])
@@ -270,8 +305,15 @@ class WithdrawalAdmin(admin.ModelAdmin):
         count = 0
         for wd in queryset.filter(status=Withdrawal.STATUS_PENDING):
             wallet = WalletModel.ensure(wd.user, wd.coin)
+            old_withdrawable = wallet.withdrawable_balance
             wallet.withdrawable_balance += wd.amount
             wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+            record_balance_change(
+                wd.user, wd.coin, BalanceAudit.FIELD_WITHDRAWABLE,
+                old_withdrawable, wallet.withdrawable_balance,
+                source=BalanceAudit.SRC_WITHDRAWAL_REFUND, actor=request.user,
+                note="Withdrawal rejected by administration",
+            )
             wd.status = Withdrawal.STATUS_REJECTED
             wd.reject_reason = "Rejected by administration"
             wd.save(update_fields=["status", "reject_reason", "updated_at"])
@@ -456,3 +498,42 @@ class NotificationAdmin(admin.ModelAdmin):
     list_display = ("type", "title", "user", "is_read", "created_at")
     list_filter = ("type", "is_read")
     search_fields = ("title", "title_ar", "body")
+
+
+@admin.register(ActivityLog)
+class ActivityLogAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "user", "action", "method", "path", "ip")
+    list_filter = ("action", "method")
+    search_fields = ("user__email", "action", "path", "ip")
+    date_hierarchy = "created_at"
+    readonly_fields = (
+        "user", "action", "method", "path", "status_code", "ip",
+        "user_agent", "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BalanceAudit)
+class BalanceAuditAdmin(admin.ModelAdmin):
+    list_display = (
+        "created_at", "user", "coin", "field", "old_value", "new_value",
+        "delta", "source", "actor",
+    )
+    list_filter = ("source", "field", "coin")
+    search_fields = ("user__email", "actor__email", "note")
+    date_hierarchy = "created_at"
+    readonly_fields = (
+        "user", "coin", "field", "old_value", "new_value", "delta",
+        "source", "actor", "note", "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

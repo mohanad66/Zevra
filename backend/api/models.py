@@ -111,6 +111,11 @@ class User(AbstractUser):
     kyc_rejected = models.BooleanField(default=False)
     is_frozen = models.BooleanField(default=False)
     banned_until = models.DateTimeField(null=True, blank=True)
+    # Presence / activity tracking (updated by ActivityTrackingMiddleware).
+    last_seen = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_path = models.CharField(max_length=200, blank=True, default="")
+    last_action = models.CharField(max_length=120, blank=True, default="")
+    last_ip = models.GenericIPAddressField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -225,13 +230,24 @@ class Investment(models.Model):
     def __str__(self):
         return f"{self.user.email} +{self.amount} {self.coin.symbol} [{self.status}]"
 
-    def confirm(self):
+    def confirm(self, source=None, actor=None):
         """Confirm the investment exactly once, then credit the wallet.
 
         The status flip is an atomic conditional UPDATE, so concurrent callers
         (double-click, webhook retry, poller) can never credit twice. The wallet
         balance uses an F() expression to avoid lost updates.
+
+        ``source`` labels the audit entry: when omitted it is detected from the
+        payment order (a provider/Plisio-confirmed order credits as a *real
+        payment*, anything else as a *system* credit).
         """
+        if source is None:
+            order = getattr(self, "payment_order", None)
+            source = (
+                BalanceAudit.SRC_PAYMENT
+                if order is not None and order.provider_order_id
+                else BalanceAudit.SRC_SYSTEM
+            )
         updated = type(self).objects.filter(
             pk=self.pk, status=self.STATUS_PENDING
         ).update(status=self.STATUS_CONFIRMED, updated_at=timezone.now())
@@ -241,9 +257,20 @@ class Investment(models.Model):
         wallet, _ = Wallet.objects.get_or_create(
             user_id=self.user_id, coin_id=self.coin_id
         )
+        old_invested = wallet.invested_balance
         Wallet.objects.filter(pk=wallet.pk).update(
             invested_balance=F("invested_balance") + self.amount,
             updated_at=timezone.now(),
+        )
+        record_balance_change(
+            self.user,
+            self.coin,
+            BalanceAudit.FIELD_INVESTED,
+            old_invested,
+            old_invested + self.amount,
+            source=source,
+            actor=actor,
+            note=f"Investment #{self.pk}",
         )
         from api.referrals import distribute_referral_awards
 
@@ -287,8 +314,19 @@ class Payout(models.Model):
     def credit_wallet(self):
         """Credit an internal bonus/profit into the user's withdrawable balance."""
         wallet = Wallet.ensure(self.user, self.coin)
+        old = wallet.withdrawable_balance
         wallet.withdrawable_balance += self.amount
         wallet.save(update_fields=["withdrawable_balance", "updated_at"])
+        record_balance_change(
+            self.user,
+            self.coin,
+            BalanceAudit.FIELD_WITHDRAWABLE,
+            old,
+            wallet.withdrawable_balance,
+            source=BalanceAudit.SRC_BONUS if self.is_bonus else BalanceAudit.SRC_PAYOUT,
+            actor=self.created_by,
+            note=self.note,
+        )
 
 
 class PayoutWindow(models.Model):
@@ -568,9 +606,20 @@ class PayoutWindow(models.Model):
                     note=f"{locked.title} payout ({locked.percent}%)",
                     created_by=locked.created_by,
                 )
+                old_withdrawable = w.withdrawable_balance
                 Wallet.objects.filter(pk=w.pk).update(
                     withdrawable_balance=F("withdrawable_balance") + amount,
                     updated_at=timezone.now(),
+                )
+                record_balance_change(
+                    user,
+                    w.coin,
+                    BalanceAudit.FIELD_WITHDRAWABLE,
+                    old_withdrawable,
+                    old_withdrawable + amount,
+                    source=BalanceAudit.SRC_PAYOUT_WINDOW,
+                    actor=locked.created_by,
+                    note=f"{locked.title} payout ({locked.percent}%)",
                 )
                 grants.append({"coin_symbol": w.coin.symbol, "amount": str(amount)})
 
@@ -1037,6 +1086,163 @@ class PriceSnapshot(models.Model):
 
     def __str__(self):
         return f"{self.coin.symbol} ${self.price} @ {self.captured_at:%Y-%m-%d %H:%M}"
+
+
+class ActivityLog(models.Model):
+    """A user action captured from an authenticated API request.
+
+    Written by ``ActivityTrackingMiddleware`` for state-changing requests (and
+    logins), so the admin "Live Activity" dashboard can show what each visitor
+    is doing and their most recent action.
+    """
+
+    METHOD_GET = "GET"
+    LEVEL_INFO = "info"
+    LEVEL_WARN = "warn"
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="activity_logs", null=True, blank=True
+    )
+    action = models.CharField(max_length=120, blank=True, default="")
+    method = models.CharField(max_length=10, blank=True, default="")
+    path = models.CharField(max_length=255, blank=True, default="")
+    status_code = models.PositiveSmallIntegerField(null=True, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=300, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["-created_at"]),
+        ]
+
+    def __str__(self):
+        who = self.user.email if self.user_id else "anonymous"
+        return f"{who} {self.action or self.method} {self.path} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class BalanceAudit(models.Model):
+    """A single change to a wallet balance, recording whether it was a real
+    payment or an edit, who made it, and the before/after values.
+
+    Sources ending in an admin/manual credit are treated as *edits*; ``payment``
+    is a real deposit confirmed by the payment provider (Plisio).
+    """
+
+    # Real money confirmed by the provider.
+    SRC_PAYMENT = "payment"
+    # Manual / internal adjustments (counted as "edited balance").
+    SRC_ADMIN_ADJUST = "admin_adjust"       # admin API balance adjustment
+    SRC_ADMIN_DIRECT = "admin_direct"       # Django admin wallet edit
+    SRC_ADMIN_CONFIRM = "admin_confirm"     # admin confirmed an investment
+    SRC_BONUS = "bonus"                     # admin-granted bonus payout
+    SRC_PAYOUT_WINDOW = "payout_window"     # scheduled payout window claim
+    SRC_REFERRAL = "referral"               # referral award credit
+    SRC_PAYOUT = "payout"                   # payout credit
+    SRC_WITHDRAWAL = "withdrawal"           # withdrawal deduction
+    SRC_WITHDRAWAL_REFUND = "withdrawal_refund"
+    SRC_SYSTEM = "system"
+
+    SOURCE_CHOICES = [
+        (SRC_PAYMENT, "Real payment (provider)"),
+        (SRC_ADMIN_ADJUST, "Admin adjustment"),
+        (SRC_ADMIN_DIRECT, "Admin wallet edit"),
+        (SRC_ADMIN_CONFIRM, "Admin confirmed investment"),
+        (SRC_BONUS, "Bonus"),
+        (SRC_PAYOUT_WINDOW, "Payout window"),
+        (SRC_REFERRAL, "Referral award"),
+        (SRC_PAYOUT, "Payout"),
+        (SRC_WITHDRAWAL, "Withdrawal"),
+        (SRC_WITHDRAWAL_REFUND, "Withdrawal refund"),
+        (SRC_SYSTEM, "System"),
+    ]
+
+    # Sources considered a real, provider-confirmed payment.
+    REAL_SOURCES = {SRC_PAYMENT}
+    # Sources considered a manual/admin edit of the balance.
+    EDITED_SOURCES = {
+        SRC_ADMIN_ADJUST,
+        SRC_ADMIN_DIRECT,
+        SRC_ADMIN_CONFIRM,
+        SRC_BONUS,
+        SRC_PAYOUT_WINDOW,
+    }
+
+    FIELD_INVESTED = "invested_balance"
+    FIELD_WITHDRAWABLE = "withdrawable_balance"
+    FIELD_CHOICES = [
+        (FIELD_INVESTED, "Invested balance"),
+        (FIELD_WITHDRAWABLE, "Withdrawable balance"),
+    ]
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="balance_audits"
+    )
+    coin = models.ForeignKey(
+        Coin, null=True, blank=True, on_delete=models.SET_NULL, related_name="balance_audits"
+    )
+    field = models.CharField(max_length=30, choices=FIELD_CHOICES)
+    old_value = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    new_value = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    delta = models.DecimalField(max_digits=30, decimal_places=8, default=0)
+    source = models.CharField(max_length=30, choices=SOURCE_CHOICES, default=SRC_SYSTEM)
+    actor = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="balance_audits_made"
+    )
+    note = models.CharField(max_length=300, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["source"]),
+            models.Index(fields=["-created_at"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.user_id} {self.field} {self.old_value}->{self.new_value} "
+            f"({self.source})"
+        )
+
+    @property
+    def is_real_payment(self):
+        return self.source in self.REAL_SOURCES
+
+    @property
+    def is_edited(self):
+        return self.source in self.EDITED_SOURCES
+
+
+def record_balance_change(
+    user, coin, field, old_value, new_value, source=BalanceAudit.SRC_SYSTEM,
+    actor=None, note="",
+):
+    """Log a wallet-balance change. No-op when the value did not change.
+
+    Never raises: auditing must not break the money path.
+    """
+    try:
+        old = Decimal(old_value or 0)
+        new = Decimal(new_value or 0)
+        if old == new:
+            return None
+        return BalanceAudit.objects.create(
+            user=user,
+            coin=coin,
+            field=field,
+            old_value=old,
+            new_value=new,
+            delta=new - old,
+            source=source,
+            actor=actor if getattr(actor, "pk", None) else None,
+            note=(note or "")[:300],
+        )
+    except Exception:  # noqa: BLE001 - never break the caller
+        return None
 
 
 def default_referral_levels():

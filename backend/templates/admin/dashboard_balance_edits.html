@@ -1,0 +1,89 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .dash-cards { display:flex; flex-wrap:wrap; gap:12px; margin:12px 0 20px; }
+  .dash-card { flex:1 1 180px; background:var(--body-bg,#fff); border:1px solid var(--hairline-color,#e0e0e0);
+               border-radius:8px; padding:12px 14px; }
+  .dash-card .label { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--body-quiet-color,#666); }
+  .dash-card .value { font-size:22px; font-weight:700; margin-top:4px; }
+  .dash-card .sub { font-size:11px; color:var(--body-quiet-color,#888); margin-top:2px; }
+  table.dash { width:100%; border-collapse:collapse; font-size:12px; }
+  table.dash th, table.dash td { padding:5px 8px; border-bottom:1px solid var(--hairline-color,#eee); text-align:left; white-space:nowrap; }
+  table.dash th { background:var(--darkened-bg,#f6f6f6); position:sticky; top:0; }
+  .scroll { max-height:460px; overflow:auto; border:1px solid var(--hairline-color,#e0e0e0); border-radius:8px; }
+  h2.dash { margin:18px 0 8px; }
+  .muted { color:var(--body-quiet-color,#888); }
+  .pos { color:#16a34a; } .neg { color:#dc2626; }
+  .chip { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; background:#eef2ff; color:#3730a3; }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a> &rsaquo; Balance Edits
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <div class="dash-cards">
+    <div class="dash-card"><div class="label">Balance edit events</div><div class="value">{{ kpi.edit_count }}</div><div class="sub">admin / bonus / window / manual</div></div>
+    <div class="dash-card"><div class="label">Users with edits</div><div class="value">{{ kpi.edited_users }}</div><div class="sub">distinct users affected</div></div>
+    <div class="dash-card"><div class="label">Total edited amount</div><div class="value">{{ kpi.edited_total|floatformat:2 }}</div><div class="sub">sum of |delta|</div></div>
+    <div class="dash-card"><div class="label">Real paid (Plisio)</div><div class="value">{{ kpi.real_total|floatformat:2 }}</div><div class="sub">{{ kpi.real_count }} provider-confirmed payments</div></div>
+  </div>
+
+  <h2 class="dash">Breakdown by source</h2>
+  <div class="scroll" style="max-height:260px;">
+    <table class="dash">
+      <thead><tr><th>Source</th><th>Events</th><th>Total |delta|</th></tr></thead>
+      <tbody>
+      {% for r in by_source %}
+        <tr><td><span class="chip">{{ r.label }}</span></td><td>{{ r.count }}</td><td>{{ r.total|floatformat:4 }}</td></tr>
+      {% empty %}<tr><td colspan="3" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="dash">Users with most balance edits</h2>
+  <div class="scroll">
+    <table class="dash">
+      <thead><tr><th>User</th><th>Edits</th><th>Total |delta|</th><th>Last edit</th></tr></thead>
+      <tbody>
+      {% for r in top_edited %}
+        <tr>
+          <td>{{ r.user__email }}</td>
+          <td>{{ r.count }}</td>
+          <td>{{ r.total|floatformat:4 }}</td>
+          <td>{{ r.last_at|date:"Y-m-d H:i"|default:"—" }}</td>
+        </tr>
+      {% empty %}<tr><td colspan="4" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="dash">Recent balance edits</h2>
+  <div class="scroll">
+    <table class="dash">
+      <thead><tr><th>When</th><th>Who edited</th><th>User</th><th>Coin</th><th>Field</th><th>Old &rarr; New</th><th>Delta</th><th>Source</th><th>Note</th></tr></thead>
+      <tbody>
+      {% for e in recent_edits %}
+        <tr>
+          <td>{{ e.created_at|date:"Y-m-d H:i:s" }}</td>
+          <td>{% if e.actor %}{{ e.actor.email }}{% else %}system{% endif %}</td>
+          <td>{{ e.user.email }}</td>
+          <td>{{ e.coin.symbol|default:"—" }}</td>
+          <td>{{ e.get_field_display }}</td>
+          <td>{{ e.old_value|floatformat:4 }} &rarr; {{ e.new_value|floatformat:4 }}</td>
+          <td class="{% if e.delta >= 0 %}pos{% else %}neg{% endif %}">{{ e.delta|floatformat:4 }}</td>
+          <td>{{ e.get_source_display }}</td>
+          <td class="muted">{{ e.note|default:"—"|truncatechars:40 }}</td>
+        </tr>
+      {% empty %}<tr><td colspan="9" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
