@@ -17,6 +17,12 @@
   .muted { color:var(--body-quiet-color,#888); }
   .pos { color:#16a34a; } .neg { color:#dc2626; }
   .chip { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; background:#eef2ff; color:#3730a3; }
+  .live-bar { display:flex; align-items:center; gap:8px; margin:6px 0 2px; font-size:12px; color:var(--body-quiet-color,#666); }
+  .pulse { width:9px; height:9px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 0 rgba(34,197,94,.7); animation:pulse 1.6s infinite; }
+  .pulse.paused { background:#94a3b8; animation:none; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(34,197,94,.6);} 70%{box-shadow:0 0 0 8px rgba(34,197,94,0);} 100%{box-shadow:0 0 0 0 rgba(34,197,94,0);} }
+  #dash-live { transition:opacity .2s; }
+  #dash-live.loading { opacity:.6; }
 </style>
 {% endblock %}
 
@@ -28,62 +34,50 @@
 
 {% block content %}
 <div id="content-main">
-  <div class="dash-cards">
-    <div class="dash-card"><div class="label">Balance edit events</div><div class="value">{{ kpi.edit_count }}</div><div class="sub">admin / bonus / window / manual</div></div>
-    <div class="dash-card"><div class="label">Users with edits</div><div class="value">{{ kpi.edited_users }}</div><div class="sub">distinct users affected</div></div>
-    <div class="dash-card"><div class="label">Total edited amount</div><div class="value">{{ kpi.edited_total|floatformat:2 }}</div><div class="sub">sum of |delta|</div></div>
-    <div class="dash-card"><div class="label">Real paid (Plisio)</div><div class="value">{{ kpi.real_total|floatformat:2 }}</div><div class="sub">{{ kpi.real_count }} provider-confirmed payments</div></div>
+  <div class="live-bar">
+    <span class="pulse" id="live-dot"></span>
+    <span id="live-status">Live &middot; updating every 5s</span>
   </div>
-
-  <h2 class="dash">Breakdown by source</h2>
-  <div class="scroll" style="max-height:260px;">
-    <table class="dash">
-      <thead><tr><th>Source</th><th>Events</th><th>Total |delta|</th></tr></thead>
-      <tbody>
-      {% for r in by_source %}
-        <tr><td><span class="chip">{{ r.label }}</span></td><td>{{ r.count }}</td><td>{{ r.total|floatformat:4 }}</td></tr>
-      {% empty %}<tr><td colspan="3" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h2 class="dash">Users with most balance edits</h2>
-  <div class="scroll">
-    <table class="dash">
-      <thead><tr><th>User</th><th>Edits</th><th>Total |delta|</th><th>Last edit</th></tr></thead>
-      <tbody>
-      {% for r in top_edited %}
-        <tr>
-          <td>{{ r.user__email }}</td>
-          <td>{{ r.count }}</td>
-          <td>{{ r.total|floatformat:4 }}</td>
-          <td>{{ r.last_at|date:"Y-m-d H:i"|default:"—" }}</td>
-        </tr>
-      {% empty %}<tr><td colspan="4" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h2 class="dash">Recent balance edits</h2>
-  <div class="scroll">
-    <table class="dash">
-      <thead><tr><th>When</th><th>Who edited</th><th>User</th><th>Coin</th><th>Field</th><th>Old &rarr; New</th><th>Delta</th><th>Source</th><th>Note</th></tr></thead>
-      <tbody>
-      {% for e in recent_edits %}
-        <tr>
-          <td>{{ e.created_at|date:"Y-m-d H:i:s" }}</td>
-          <td>{% if e.actor %}{{ e.actor.email }}{% else %}system{% endif %}</td>
-          <td>{{ e.user.email }}</td>
-          <td>{{ e.coin.symbol|default:"—" }}</td>
-          <td>{{ e.get_field_display }}</td>
-          <td>{{ e.old_value|floatformat:4 }} &rarr; {{ e.new_value|floatformat:4 }}</td>
-          <td class="{% if e.delta >= 0 %}pos{% else %}neg{% endif %}">{{ e.delta|floatformat:4 }}</td>
-          <td>{{ e.get_source_display }}</td>
-          <td class="muted">{{ e.note|default:"—"|truncatechars:40 }}</td>
-        </tr>
-      {% empty %}<tr><td colspan="9" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
-      </tbody>
-    </table>
+  <div id="dash-live">
+    {% include "admin/_balance_edits_body.html" %}
   </div>
 </div>
+<script>
+(function () {
+  var INTERVAL = 5000;
+  var el = document.getElementById("dash-live");
+  var dot = document.getElementById("live-dot");
+  var status = document.getElementById("live-status");
+  var timer = null;
+  function stamp() { return new Date().toLocaleTimeString(); }
+  function refresh() {
+    if (document.hidden) return;
+    el.classList.add("loading");
+    fetch(window.location.pathname + "?partial=1", {
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      cache: "no-store"
+    })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (html) {
+        el.innerHTML = html;
+        el.classList.remove("loading");
+        dot.classList.remove("paused");
+        status.textContent = "Live \u00b7 updated " + stamp();
+      })
+      .catch(function () {
+        el.classList.remove("loading");
+        dot.classList.add("paused");
+        status.textContent = "Reconnecting\u2026";
+      });
+  }
+  function start() { if (!timer) timer = setInterval(refresh, INTERVAL); }
+  function stop() { clearInterval(timer); timer = null; }
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { stop(); dot.classList.add("paused"); status.textContent = "Paused (tab hidden)"; }
+    else { dot.classList.remove("paused"); start(); refresh(); }
+  });
+  start();
+})();
+</script>
 {% endblock %}

@@ -150,6 +150,13 @@ class User(AbstractUser):
     def is_banned(self):
         return bool(self.banned_until and self.banned_until > timezone.now())
 
+    @property
+    def is_online(self):
+        """True when the user was seen within the presence window (5 min)."""
+        if not self.last_seen:
+            return False
+        return (timezone.now() - self.last_seen).total_seconds() <= 300
+
     def __str__(self):
         return self.login_name
 

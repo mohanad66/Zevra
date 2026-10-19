@@ -24,6 +24,12 @@
   .bars .cap { font-size:9px; color:var(--body-quiet-color,#888); margin-top:2px; white-space:nowrap; }
   h2.dash { margin:18px 0 8px; }
   .muted { color:var(--body-quiet-color,#888); }
+  .live-bar { display:flex; align-items:center; gap:8px; margin:6px 0 2px; font-size:12px; color:var(--body-quiet-color,#666); }
+  .pulse { width:9px; height:9px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 0 rgba(34,197,94,.7); animation:pulse 1.6s infinite; }
+  .pulse.paused { background:#94a3b8; animation:none; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(34,197,94,.6);} 70%{box-shadow:0 0 0 8px rgba(34,197,94,0);} 100%{box-shadow:0 0 0 0 rgba(34,197,94,0);} }
+  #dash-live { transition:opacity .2s; }
+  #dash-live.loading { opacity:.6; }
 </style>
 {% endblock %}
 
@@ -35,129 +41,58 @@
 
 {% block content %}
 <div id="content-main">
-  <div class="dash-cards">
-    <div class="dash-card"><div class="label">Real paid (all time)</div><div class="value">{{ kpi.real_total|floatformat:2 }}</div><div class="sub">{{ kpi.real_count }} provider-confirmed payments</div></div>
-    <div class="dash-card"><div class="label">Real paid today</div><div class="value">{{ kpi.real_today|floatformat:2 }}</div><div class="sub">7d: {{ kpi.real_7d|floatformat:2 }} &middot; 30d: {{ kpi.real_30d|floatformat:2 }}</div></div>
-    <div class="dash-card"><div class="label">Online now</div><div class="value">{{ online_count }}</div><div class="sub">seen in last 5 minutes</div></div>
-    <div class="dash-card"><div class="label">Users</div><div class="value">{{ kpi.users_total }}</div><div class="sub">+{{ kpi.users_new_today }} today &middot; +{{ kpi.users_new_7d }} 7d &middot; +{{ kpi.users_new_30d }} 30d</div></div>
-    <div class="dash-card"><div class="label">Total invested</div><div class="value">{{ kpi.total_invested|floatformat:2 }}</div><div class="sub">withdrawable: {{ kpi.total_withdrawable|floatformat:2 }}</div></div>
-    <div class="dash-card"><div class="label">Pending payments</div><div class="value">{{ kpi.pending_count }}</div><div class="sub">{{ kpi.paid_all_count }} paid orders total</div></div>
-    <div class="dash-card"><div class="label">Withdrawals paid</div><div class="value">{{ kpi.withdrawals_paid|floatformat:2 }}</div><div class="sub">{{ kpi.withdrawals_paid_count }} completed</div></div>
+  <div class="live-bar">
+    <span class="pulse" id="live-dot"></span>
+    <span id="live-status">Live &middot; updating every 5s</span>
   </div>
-
-  <h2 class="dash">Growth &mdash; last 14 days</h2>
-  <div class="bars">
-    {% for s in growth %}
-      <div class="col" title="{{ s.date }} — {{ s.new_users }} new users, {{ s.payments }} payments">
-        <div class="bar" style="height:{% widthratio s.payments growth_max 100 %}%"></div>
-        <div class="bar users" style="height:{% widthratio s.new_users growth_max 100 %}%"></div>
-        <div class="cap">{{ s.date|date:"d/m" }}</div>
-      </div>
-    {% endfor %}
-  </div>
-  <p class="muted">Blue = real payments/day, grey = new users/day.</p>
-
-  <div class="dash-grid">
-    <div>
-      <h2 class="dash">Most coins successfully paid (real)</h2>
-      <div class="scroll">
-        <table class="dash">
-          <thead><tr><th>Coin</th><th>Payments</th><th>Total</th></tr></thead>
-          <tbody>
-          {% for r in by_coin %}<tr><td>{{ r.coin__symbol }}</td><td>{{ r.count }}</td><td>{{ r.total|floatformat:4 }}</td></tr>
-          {% empty %}<tr><td colspan="3" class="muted">No real payments yet.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    <div>
-      <h2 class="dash">Top users by real paid (Plisio)</h2>
-      <div class="scroll">
-        <table class="dash">
-          <thead><tr><th>User</th><th>Payments</th><th>Total</th></tr></thead>
-          <tbody>
-          {% for r in top_payers %}<tr><td>{{ r.user__email }}</td><td>{{ r.count }}</td><td>{{ r.total|floatformat:4 }}</td></tr>
-          {% empty %}<tr><td colspan="3" class="muted">No real payments yet.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <h2 class="dash">Recent real payments</h2>
-  <div class="scroll">
-    <table class="dash">
-      <thead><tr><th>When</th><th>User</th><th>Coin</th><th>Amount</th><th>Order</th><th>Tx</th></tr></thead>
-      <tbody>
-      {% for p in recent_payments %}
-        <tr>
-          <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
-          <td>{{ p.user.email }}</td>
-          <td>{{ p.coin.symbol }}</td>
-          <td>{{ p.amount|floatformat:4 }}</td>
-          <td>{{ p.order_ref }}</td>
-          <td>{{ p.tx_hash|default:"—"|truncatechars:18 }}</td>
-        </tr>
-      {% empty %}<tr><td colspan="6" class="muted">No real payments yet.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h2 class="dash">Users online now ({{ online_count }})</h2>
-  <div class="scroll">
-    <table class="dash">
-      <thead><tr><th></th><th>User</th><th>Last seen</th><th>What they're doing</th><th>Path</th><th>IP</th></tr></thead>
-      <tbody>
-      {% for u in live_users %}
-        <tr>
-          <td><span class="dot on"></span></td>
-          <td>{{ u.email }}</td>
-          <td>{{ u.last_seen|date:"H:i:s" }} ({{ u.last_seen|timesince }} ago)</td>
-          <td>{{ u.last_action|default:"—" }}</td>
-          <td class="muted">{{ u.last_path|default:"—" }}</td>
-          <td>{{ u.last_ip|default:"—" }}</td>
-        </tr>
-      {% empty %}<tr><td colspan="6" class="muted">Nobody online right now.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h2 class="dash">Recently active users</h2>
-  <div class="scroll">
-    <table class="dash">
-      <thead><tr><th></th><th>User</th><th>Last seen</th><th>Last action</th><th>Path</th><th>IP</th></tr></thead>
-      <tbody>
-      {% for u in recent_seen %}
-        <tr>
-          <td>{% if u.last_seen >= online_cutoff %}<span class="dot on"></span>{% else %}<span class="dot off"></span>{% endif %}</td>
-          <td>{{ u.email }}</td>
-          <td>{{ u.last_seen|date:"Y-m-d H:i" }}</td>
-          <td>{{ u.last_action|default:"—" }}</td>
-          <td class="muted">{{ u.last_path|default:"—" }}</td>
-          <td>{{ u.last_ip|default:"—" }}</td>
-        </tr>
-      {% empty %}<tr><td colspan="6" class="muted">No activity recorded yet.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <h2 class="dash">Live activity feed</h2>
-  <div class="scroll">
-    <table class="dash">
-      <thead><tr><th>When</th><th>User</th><th>Action</th><th>Method</th><th>Path</th><th>IP</th></tr></thead>
-      <tbody>
-      {% for a in activity_feed %}
-        <tr>
-          <td>{{ a.created_at|date:"Y-m-d H:i:s" }}</td>
-          <td>{{ a.user.email|default:"—" }}</td>
-          <td>{{ a.action|default:"—" }}</td>
-          <td>{{ a.method }}</td>
-          <td class="muted">{{ a.path }}</td>
-          <td>{{ a.ip|default:"—" }}</td>
-        </tr>
-      {% empty %}<tr><td colspan="6" class="muted">No activity recorded yet.</td></tr>{% endfor %}
-      </tbody>
-    </table>
+  <div id="dash-live">
+    {% include "admin/_payments_body.html" %}
   </div>
 </div>
+<script>
+(function () {
+  var INTERVAL = 5000;
+  var el = document.getElementById("dash-live");
+  var dot = document.getElementById("live-dot");
+  var status = document.getElementById("live-status");
+  var timer = null;
+
+  function stamp() {
+    var d = new Date();
+    return d.toLocaleTimeString();
+  }
+
+  function refresh() {
+    if (document.hidden) return;
+    el.classList.add("loading");
+    fetch(window.location.pathname + "?partial=1", {
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      cache: "no-store"
+    })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (html) {
+        el.innerHTML = html;
+        el.classList.remove("loading");
+        dot.classList.remove("paused");
+        status.textContent = "Live \u00b7 updated " + stamp();
+      })
+      .catch(function (e) {
+        el.classList.remove("loading");
+        dot.classList.add("paused");
+        status.textContent = "Reconnecting\u2026";
+      });
+  }
+
+  function start() { if (!timer) timer = setInterval(refresh, INTERVAL); }
+  function stop() { clearInterval(timer); timer = null; }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { stop(); dot.classList.add("paused"); status.textContent = "Paused (tab hidden)"; }
+    else { dot.classList.remove("paused"); start(); refresh(); }
+  });
+
+  start();
+})();
+</script>
 {% endblock %}

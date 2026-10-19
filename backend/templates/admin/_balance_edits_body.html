@@ -1,0 +1,57 @@
+<div class="dash-cards">
+  <div class="dash-card"><div class="label">Balance edit events</div><div class="value">{{ kpi.edit_count }}</div><div class="sub">admin / bonus / window / manual</div></div>
+  <div class="dash-card"><div class="label">Users with edits</div><div class="value">{{ kpi.edited_users }}</div><div class="sub">distinct users affected</div></div>
+  <div class="dash-card"><div class="label">Total edited amount</div><div class="value">{{ kpi.edited_total|floatformat:2 }}</div><div class="sub">sum of |delta|</div></div>
+  <div class="dash-card"><div class="label">Real paid (Plisio)</div><div class="value">{{ kpi.real_total|floatformat:2 }}</div><div class="sub">{{ kpi.real_count }} provider-confirmed payments</div></div>
+</div>
+
+<h2 class="dash">Breakdown by source</h2>
+<div class="scroll" style="max-height:260px;">
+  <table class="dash">
+    <thead><tr><th>Source</th><th>Events</th><th>Total |delta|</th></tr></thead>
+    <tbody>
+    {% for r in by_source %}
+      <tr><td><span class="chip">{{ r.label }}</span></td><td>{{ r.count }}</td><td>{{ r.total|floatformat:4 }}</td></tr>
+    {% empty %}<tr><td colspan="3" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 class="dash">Users with most balance edits</h2>
+<div class="scroll">
+  <table class="dash">
+    <thead><tr><th>User</th><th>Edits</th><th>Total |delta|</th><th>Last edit</th></tr></thead>
+    <tbody>
+    {% for r in top_edited %}
+      <tr>
+        <td>{{ r.user__email }}</td>
+        <td>{{ r.count }}</td>
+        <td>{{ r.total|floatformat:4 }}</td>
+        <td>{% if r.last_at %}{{ r.last_at|timesince }} ago{% else %}—{% endif %}</td>
+      </tr>
+    {% empty %}<tr><td colspan="4" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 class="dash">Recent balance edits</h2>
+<div class="scroll">
+  <table class="dash">
+    <thead><tr><th>When</th><th>Who edited</th><th>User</th><th>Coin</th><th>Field</th><th>Old &rarr; New</th><th>Delta</th><th>Source</th><th>Note</th></tr></thead>
+    <tbody>
+    {% for e in recent_edits %}
+      <tr>
+        <td>{{ e.created_at|timesince }} ago</td>
+        <td>{% if e.actor %}{{ e.actor.email }}{% else %}system{% endif %}</td>
+        <td>{{ e.user.email }}</td>
+        <td>{{ e.coin.symbol|default:"—" }}</td>
+        <td>{{ e.get_field_display }}</td>
+        <td>{{ e.old_value|floatformat:4 }} &rarr; {{ e.new_value|floatformat:4 }}</td>
+        <td class="{% if e.delta >= 0 %}pos{% else %}neg{% endif %}">{{ e.delta|floatformat:4 }}</td>
+        <td>{{ e.get_source_display }}</td>
+        <td class="muted">{{ e.note|default:"—"|truncatechars:40 }}</td>
+      </tr>
+    {% empty %}<tr><td colspan="9" class="muted">No balance edits recorded yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -109,6 +109,7 @@ def payments_dashboard(request):
         User.objects.filter(last_seen__gte=online_cutoff)
         .order_by("-last_seen")[:100]
     )
+    # ``ONLINE_WINDOW`` is mirrored by ``User.is_online`` used in the template.
     recent_seen = (
         User.objects.filter(last_seen__isnull=False)
         .order_by("-last_seen")[:60]
@@ -161,9 +162,13 @@ def payments_dashboard(request):
         "live_users": live_users,
         "recent_seen": recent_seen,
         "activity_feed": activity_feed,
-        "online_cutoff": online_cutoff,
     }
-    return render(request, "admin/dashboard_payments.html", context)
+    template = (
+        "admin/_payments_body.html"
+        if request.GET.get("partial")
+        else "admin/dashboard_payments.html"
+    )
+    return render(request, template, context)
 
 
 @admin.site.admin_view
@@ -222,4 +227,9 @@ def balance_edits_dashboard(request):
         "recent_edits": recent_edits,
         "by_source": by_source,
     }
-    return render(request, "admin/dashboard_balance_edits.html", context)
+    template = (
+        "admin/_balance_edits_body.html"
+        if request.GET.get("partial")
+        else "admin/dashboard_balance_edits.html"
+    )
+    return render(request, template, context)
