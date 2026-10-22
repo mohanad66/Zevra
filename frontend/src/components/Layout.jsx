@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom'
-import { LineChart, TrendingUp, ArrowDownToLine, Users, UserCircle, LogOut, Home, Shield, Bell, Globe, LifeBuoy, Sun, Moon } from 'lucide-react'
+import { LineChart, TrendingUp, ArrowDownToLine, Users, UserCircle, LogOut, Home, Shield, Bell, Globe, LifeBuoy, Sun, Moon, Coins } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
 import { useTheme } from '../theme'
 import { client } from '../api/client'
+import GuidePopup from './GuidePopup'
 
 function useNavLabels(t) {
   return [
@@ -15,6 +16,14 @@ function useNavLabels(t) {
     { to: '/referrals', label: t('nav.referrals'), icon: Users },
     { to: '/profile', label: t('nav.profile'), icon: UserCircle },
   ]
+}
+
+/* Payout windows are a real earnings feature but the page had no nav entry at
+   all — it was only reachable from one link inside Withdraw. Seven items
+   overflow the bottom bar on a phone, so it joins the top nav only. */
+function useTopNavLabels(t) {
+  const links = useNavLabels(t)
+  return [...links.slice(0, 4), { to: '/payouts', label: t('nav.payouts'), icon: Coins }, { to: '/growth', label: t('nav.growth'), icon: TrendingUp }, ...links.slice(4)]
 }
 
 function NotificationBell() {
@@ -116,16 +125,17 @@ export default function Layout() {
   const { lang, t, changeLang } = useI18n()
   const { theme, toggleTheme } = useTheme()
   const links = useNavLabels(t)
+  const topLinks = useTopNavLabels(t)
 
   return (
     <div className="app">
       <header className="topbar">
         <NavLink to="/dashboard" className="brand">
-          <img src="/logo.png" alt="Miyar Trading" className="brand-mark" />
-          <span className="brand-name">Miyar Trading</span>
+          <img src="/logo.png" alt="MYX app" className="brand-mark" />
+          <span className="brand-name">MYX app</span>
         </NavLink>
         <nav className="topnav">
-          {links.map((l) => (
+          {topLinks.map((l) => (
             <NavLink key={l.to} to={l.to} className={({ isActive }) => (isActive ? 'navlink active' : 'navlink')}>
               {l.label}
             </NavLink>
@@ -193,6 +203,7 @@ export default function Layout() {
           <NavLink to="/kyc-policy">{t('nav.kycPolicy')}</NavLink>
         </div>
       </footer>
+      <GuidePopup />
     </div>
   )
 }

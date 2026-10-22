@@ -60,7 +60,7 @@ export default function Auth({ initialMode = 'login' }) {
     <div className="auth-page">
       <form className="auth-card" onSubmit={submit}>
         <div className="auth-brand">
-          <img src="/logo.png" alt="Miyar Trading" className="brand-mark" />
+          <img src="/logo.png" alt="MYX app" className="brand-mark" />
           <h1>
             {mode === 'login' ? t('auth.login.title') : t('auth.register.title')}
           </h1>

@@ -1,6 +1,7 @@
 import json
+import logging
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import requests
@@ -20,6 +21,7 @@ from api.models import (
     Investment,
     KYCSubmission,
     Notification,
+    OneTimeCode,
     PaymentOrder,
     Payout,
     PayoutWindow,
@@ -33,6 +35,7 @@ from api.models import (
     _is_valid_timezone,
     record_balance_change,
 )
+from api import verification
 from api.serializers import (
     InvestmentInputSerializer,
     InvestmentSerializer,
@@ -72,6 +75,9 @@ from api.services import (
     payment_order_status,
     _withdrawal_order_ref,
 )
+from api.activity import log_action, touch_presence
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -88,9 +94,30 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+
+        # Kick off account activation straight away (best effort).
+        # verification_required = bool(user.email) and not user.email_verified
+        # verify_detail = ""
+        # if verification_required:
+        #     ok, payload = _send_verification_code(
+        #         user, OneTimeCode.CHANNEL_EMAIL, OneTimeCode.PURPOSE_REGISTER
+        #     )
+        #     if isinstance(payload, dict):
+        #         verify_detail = payload.get("detail", "")
+        #     elif not ok:
+        #         verify_detail = tr(
+        #             "We could not send the activation email yet — you can resend it from your profile.",
+        #             request,
+        #         )
+
         data = UserSerializer(user, context={"request": request}).data
         return response.Response(
-            {"user": data, "message": tr("Account created. You can now log in.", request)},
+            {
+                "user": data,
+                "message": tr("Account created. You can now log in.", request),
+                "verification_required": False,
+                "verification_detail": "",
+            },
             status=status.HTTP_201_CREATED,
         )
 
@@ -154,6 +181,348 @@ class ChangePasswordView(views.APIView):
         request.user.set_password(serializer.validated_data["new_password"])
         request.user.save(update_fields=["password"])
         return response.Response({"message": tr("Password changed successfully.", request)})
+
+
+# ---------------------------------------------------------------------------
+# Contact verification (one-time codes by email / SMS)
+# ---------------------------------------------------------------------------
+
+OTP_COOLDOWN_SECONDS = 60
+VERIFICATION_PURPOSES = {
+    OneTimeCode.PURPOSE_REGISTER,
+    OneTimeCode.PURPOSE_LOGIN,
+    OneTimeCode.PURPOSE_INVEST,
+    OneTimeCode.PURPOSE_WITHDRAW,
+    OneTimeCode.PURPOSE_KYC,
+    OneTimeCode.PURPOSE_CHANGE_CONTACT,
+}
+VERIFICATION_TTL_SECONDS = OneTimeCode.TTL_MINUTES * 60
+
+
+def _cooldown_key(user, channel, purpose):
+    return f"otp:cd:{user.pk}:{channel}:{purpose}"
+
+
+def _cooldown_remaining(key):
+    """Seconds left on a resend cooldown, or 0 when none is running.
+
+    Stores an expiry timestamp so the client can be told how long to wait.
+    Older deployments cached a bare `1` there; treat that as a full window
+    rather than crashing on arithmetic.
+    """
+    expires = cache.get(key)
+    if not expires:
+        return 0
+    if not isinstance(expires, datetime):
+        return OTP_COOLDOWN_SECONDS
+    return max(0, int((expires - timezone.now()).total_seconds()))
+
+
+def _mask_for(user, channel):
+    if channel == OneTimeCode.CHANNEL_SMS:
+        return OneTimeCode.mask_phone(user.phone)
+    return OneTimeCode.mask_email(user.email)
+
+
+def _send_verification_code(user, channel, purpose, request=None):
+    """Issue and deliver a code. Returns ``(ok, payload_or_error)``."""
+    target = (user.phone if channel == OneTimeCode.CHANNEL_SMS else user.email) or ""
+    target = target.strip()
+    if not target:
+        label = tr("phone number", request) if channel == OneTimeCode.CHANNEL_SMS else tr("email", request)
+        article = "an" if channel != OneTimeCode.CHANNEL_SMS else "a"
+        return False, tr(f"Add {article} {label} to your profile first.", request)
+
+    cache_key = _cooldown_key(user, channel, purpose)
+    remaining = _cooldown_remaining(cache_key)
+    if remaining:
+        # Structured, not just prose: without it the client had no way to lock
+        # its resend button, and register's auto-sent code left the user
+        # hammering a 60s cooldown into a wall of 400s.
+        return False, {
+            "detail": tr(
+                f"A code was just sent. Wait {OTP_COOLDOWN_SECONDS} seconds to request another.", request
+            ),
+            "retry_after": remaining,
+            "masked": _mask_for(user, channel),
+        }
+
+    instance, code = OneTimeCode.issue(user, channel, purpose, destination=_mask_for(user, channel))
+    if channel == OneTimeCode.CHANNEL_SMS:
+        ok, detail = verification.send_sms_code(target, code, purpose)
+    else:
+        ok, detail = verification.send_email_code(target, code, purpose)
+    if not ok:
+        instance.delete()
+        logger.error("verification: delivery failed (%s): %s", channel, detail)
+        return False, tr("Could not send the code. Try again in a minute.", request)
+
+    cache.set(cache_key, timezone.now() + timedelta(seconds=OTP_COOLDOWN_SECONDS), OTP_COOLDOWN_SECONDS)
+    return True, {
+        "detail": tr(
+            f"We sent a 6-digit code to {_mask_for(user, channel)}. It expires in {OneTimeCode.TTL_MINUTES} minutes.",
+            request,
+        ),
+        "masked": _mask_for(user, channel),
+        "channel": channel,
+        "purpose": purpose,
+        "expires_in": VERIFICATION_TTL_SECONDS,
+        "cooldown": OTP_COOLDOWN_SECONDS,
+    }
+
+
+class VerificationStatusView(views.APIView):
+    """What is still unverified on this account + the platform requirements."""
+
+    def get(self, request):
+        user = request.user
+        settings_map = PlatformSettings.public_map()
+        # `register` sends a code before the UI ever mounts, so the client has
+        # to be able to ask "is one already in flight?" or it renders a Send
+        # button that can only ever bounce off the resend cooldown.
+        channel = (request.query_params.get("channel") or OneTimeCode.CHANNEL_EMAIL).strip().lower()
+        purpose = (request.query_params.get("purpose") or OneTimeCode.PURPOSE_REGISTER).strip()
+        retry_after = _cooldown_remaining(_cooldown_key(user, channel, purpose))
+        return response.Response(
+            {
+                "email": user.email,
+                "email_verified": user.email_verified,
+                "phone": user.phone,
+                "phone_verified": user.phone_verified,
+                "verified_at": user.verified_at,
+                "kyc_verified": user.kyc_verified,
+                "channels": settings_map["verification_channels"],
+                "required": {
+                    "email": settings_map["email_verification_required"],
+                    "sms": settings_map["phone_verification_required"],
+                    "kyc_to_invest": settings_map["kyc_required_to_invest"],
+                    "kyc_to_withdraw": settings_map["kyc_required_to_withdraw"],
+                },
+                "pending": {
+                    "channel": channel,
+                    "purpose": purpose,
+                    "retry_after": retry_after,
+                    "masked": _mask_for(user, channel) if retry_after else "",
+                },
+            }
+        )
+
+
+class VerificationSendView(views.APIView):
+    """Send (or resend) a one-time code to the signed-in user."""
+
+    throttle_scope = "auth"
+
+    def post(self, request):
+        user = request.user
+        channel = (request.data.get("channel") or OneTimeCode.CHANNEL_EMAIL).strip().lower()
+        purpose = (request.data.get("purpose") or OneTimeCode.PURPOSE_REGISTER).strip()
+
+        if channel not in PlatformSettings.verification_channels():
+            return response.Response(
+                {"detail": tr("That verification channel is not available.", request)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if purpose not in VERIFICATION_PURPOSES:
+            purpose = OneTimeCode.PURPOSE_REGISTER
+
+        ok, payload = _send_verification_code(user, channel, purpose, request)
+        if not ok:
+            # Cooldown failures arrive as a dict carrying `retry_after`; every
+            # other failure is still a plain string.
+            body = payload if isinstance(payload, dict) else {"detail": payload}
+            return response.Response(body, status=status.HTTP_400_BAD_REQUEST)
+        return response.Response(payload)
+
+
+class VerificationConfirmView(views.APIView):
+    """Verify a one-time code and mark the contact as verified."""
+
+    throttle_scope = "auth"
+
+    def post(self, request):
+        user = request.user
+        channel = (request.data.get("channel") or OneTimeCode.CHANNEL_EMAIL).strip().lower()
+        purpose = (request.data.get("purpose") or OneTimeCode.PURPOSE_REGISTER).strip()
+        code = str(request.data.get("code") or "").strip()
+
+        pending = (
+            user.one_time_codes.filter(
+                channel=channel,
+                purpose=purpose,
+                consumed_at__isnull=True,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if pending is None:
+            return response.Response(
+                {"detail": tr("No pending code. Request a new one.", request)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if pending.is_expired:
+            return response.Response(
+                {"detail": tr("That code expired. Request a new one.", request)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not pending.verify_code(code):
+            remaining = max(pending.max_attempts - pending.attempts, 0)
+            return response.Response(
+                {
+                    "detail": tr(
+                        f"Incorrect code. {remaining} attempt(s) left.", request
+                    ),
+                    "attempts_left": remaining,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+        if channel == OneTimeCode.CHANNEL_SMS:
+            user.phone_verified = True
+        else:
+            user.email_verified = True
+        if not user.verified_at:
+            user.verified_at = now
+        user.save(update_fields=["email_verified", "phone_verified", "verified_at"])
+        cache.delete(f"otp:cd:{user.pk}:{channel}:{purpose}")
+        log_action(user, request, action=f"verify_{channel}", status_code=200)
+
+        return response.Response(
+            {
+                "message": tr(
+                    "Verified. Your account is now fully activated.", request
+                ),
+                "user": UserSerializer(user, context={"request": request}).data,
+            }
+        )
+
+
+def verification_blocker(user, action, request=None):
+    """Return a human message if `action` is blocked, otherwise ``None``.
+
+    Combines the email/phone verification gates with the existing KYC gates so
+    callers only need one check.
+    """
+    if not user or not user.is_authenticated:
+        return None
+
+    if (
+        action == "invest"
+        and PlatformSettings.get_bool(PlatformSettings.S_EMAIL_VERIFICATION_REQUIRED)
+        and not user.email_verified
+    ):
+        return tr("Verify your email address before investing.", request)
+    if (
+        action == "invest"
+        and PlatformSettings.get_bool(PlatformSettings.S_PHONE_VERIFICATION_REQUIRED)
+        and not user.phone_verified
+    ):
+        return tr("Verify your phone number before investing.", request)
+
+    if (
+        action == "invest"
+        and PlatformSettings.get_bool(PlatformSettings.S_KYC_REQUIRED_TO_INVEST)
+        and not user.kyc_verified
+    ):
+        return tr("Complete identity verification (KYC) before investing.", request)
+    if (
+        action == "withdraw"
+        and PlatformSettings.get_bool(PlatformSettings.S_KYC_REQUIRED_TO_WITHDRAW)
+        and not user.kyc_verified
+    ):
+        return tr("Complete identity verification (KYC) before withdrawing.", request)
+    return None
+
+
+class OnboardingStatusView(views.APIView):
+    """Ordered checklist: KYC first, then first successful invest, claim payout when opens, then withdraw."""
+
+    def get(self, request):
+        user = request.user
+        cfg = PlatformSettings.public_map()
+
+        has_payment_method = CryptoAccount.objects.filter(user=user).exists()
+        has_deposit_order = PaymentOrder.objects.filter(user=user).exists()
+        # first successful invest only
+        success_statuses = {"completed", "paid", "approved", "success", "filled", "confirmed", "done"}
+        has_successful_invest = Investment.objects.filter(user=user).filter(
+            status__in=success_statuses
+        ).exists()
+        has_withdrawal = Withdrawal.objects.filter(user=user).filter(
+            status__in=["pending", "processing", "completed", "paid", "approved", "success"]
+        ).exists()
+        # mission: claim payout when window opens (claims are stored on the
+        # PayoutWindow.claimed_by M2M, there is no separate claim model).
+        claimed_payout = PayoutWindow.objects.filter(claimed_by=user).exists()
+
+        steps = [
+            {
+                "key": "kyc_verification",
+                "title": tr("Complete KYC verification", request),
+                "detail": tr("Verify your identity to unlock full features.", request),
+                "done": bool(getattr(user, "kyc_verified", False)),
+                "required": bool(cfg.get("kyc_required_to_invest", False) or cfg.get("kyc_required_to_withdraw", False)),
+                "cta": tr("Start KYC", request),
+                "href": "/profile",
+            },
+            {
+                "key": "first_invest",
+                "title": tr("Make your first successful investment", request),
+                "detail": tr("Your investment must be completed successfully to count.", request),
+                "done": bool(has_successful_invest),
+                "required": False,
+                "cta": tr("Invest now", request),
+                "href": "/invest",
+            },
+            {
+                "key": "claim_payout_mission",
+                "title": tr("Mission: Claim payout when it opens", request),
+                "detail": tr(
+                    "When a payout window opens for you, claim it from Dashboard to complete this quest before withdrawing.",
+                    request,
+                ),
+                "done": bool(claimed_payout),
+                "required": False,
+                "cta": tr("View payouts", request),
+                "href": "/dashboard",
+            },
+            {
+                "key": "first_withdrawal",
+                "title": tr("Mission: Make your first withdrawal", request),
+                "detail": tr(
+                    "After claiming your payout mission, withdraw your coins to complete this quest.",
+                    request,
+                ),
+                "done": bool(has_withdrawal),
+                "required": False,
+                "cta": tr("Withdraw now", request),
+                "href": "/withdraw",
+            },
+        ]
+
+        for index, step in enumerate(steps, start=1):
+            step["index"] = index
+            step["is_next"] = False
+
+        next_step = next((s for s in steps if not s["done"]), None)
+        if next_step:
+            next_step["is_next"] = True
+
+        completed = sum(1 for s in steps if s["done"])
+        total = len(steps)
+        percent = int((completed / total) * 100) if total else 100
+        return response.Response(
+            {
+                "steps": steps,
+                "completed": completed,
+                "total": total,
+                "percent": percent,
+                "next": next_step,
+            }
+        )
+
 
 
 class DeleteAccountView(views.APIView):
@@ -367,6 +736,89 @@ class DashboardView(views.APIView):
         )
 
 
+class PortfolioGrowthView(views.APIView):
+    """How the user's coins have grown: invested vs earned vs withdrawn."""
+
+    EARNED_STATUSES = {"completed", "paid", "approved", "success"}
+
+    def get(self, request):
+        user = request.user
+        wallets = list(Wallet.objects.filter(user=user).select_related("coin"))
+        wallet_by_coin = {w.coin_id: w for w in wallets}
+
+        earned = {}
+        withdrawn = {}
+        for row in (
+            Payout.objects.filter(user=user)
+            .filter(status__in=self.EARNED_STATUSES)
+            .values("coin_id")
+            .annotate(total=models.Sum("amount"))
+        ):
+            earned[row["coin_id"]] = row["total"] or Decimal("0")
+        for row in (
+            ReferralAward.objects.filter(user=user)
+            .filter(status__in=self.EARNED_STATUSES)
+            .values("coin_id")
+            .annotate(total=models.Sum("amount"))
+        ):
+            earned[row["coin_id"]] = earned.get(row["coin_id"], Decimal("0")) + (row["total"] or Decimal("0"))
+        for row in (
+            Withdrawal.objects.filter(user=user)
+            .filter(status__in={"completed", "paid", "approved", "success"})
+            .values("coin_id")
+            .annotate(total=models.Sum("amount"))
+        ):
+            withdrawn[row["coin_id"]] = row["total"] or Decimal("0")
+
+        coin_ids = set(wallet_by_coin) | set(earned) | set(withdrawn)
+        coins = []
+        coin_qs = Coin.objects.filter(id__in=coin_ids).prefetch_related("price_snapshots")
+        for coin in coin_qs:
+            wallet = wallet_by_coin.get(coin.id)
+            invested_balance = wallet.invested_balance if wallet else Decimal("0")
+            withdrawable_balance = wallet.withdrawable_balance if wallet else Decimal("0")
+            earned_amt = earned.get(coin.id, Decimal("0"))
+            withdrawn_amt = withdrawn.get(coin.id, Decimal("0"))
+            base = invested_balance or withdrawn_amt
+            growth_percent = (
+                (earned_amt / base * 100) if base else Decimal("0")
+            )
+            coin_data = CoinSerializer(coin, context={"request": request}).data
+            coins.append(
+                {
+                    "coin_id": coin.id,
+                    "symbol": coin.symbol,
+                    "name": coin.name,
+                    "icon_url": coin_data.get("icon_url"),
+                    "invested_balance": str(invested_balance),
+                    "withdrawable_balance": str(withdrawable_balance),
+                    "earned": str(earned_amt),
+                    "withdrawn": str(withdrawn_amt),
+                    "growth_percent": str(round(growth_percent, 2)),
+                }
+            )
+        coins.sort(key=lambda c: Decimal(c["earned"]), reverse=True)
+
+        total_invested = sum((Decimal(c["invested_balance"]) for c in coins), Decimal("0"))
+        total_earned = sum((Decimal(c["earned"]) for c in coins), Decimal("0"))
+        total_withdrawn = sum((Decimal(c["withdrawn"]) for c in coins), Decimal("0"))
+        total_growth = (
+            (total_earned / total_invested * 100) if total_invested else Decimal("0")
+        )
+
+        return response.Response(
+            {
+                "coins": coins,
+                "totals": {
+                    "invested": str(total_invested),
+                    "earned": str(total_earned),
+                    "withdrawn": str(total_withdrawn),
+                    "growth_percent": str(round(total_growth, 2)),
+                },
+            }
+        )
+
+
 class WalletDetailView(views.APIView):
     def get(self, request, coin_id):
         user = request.user
@@ -410,6 +862,17 @@ class InvestView(views.APIView):
         if user.is_frozen:
             return response.Response(
                 {"detail": tr("Your account is frozen.", request)}, status=403
+            )
+
+        blocked = verification_blocker(user, "invest", request)
+        if blocked:
+            return response.Response(
+                {
+                    "detail": blocked,
+                    "code": "verification_required",
+                    "action": "invest",
+                },
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         with transaction.atomic():
@@ -1076,7 +1539,10 @@ class AdminOrderConfirmView(views.APIView):
         order = PaymentOrder.objects.select_related("investment").filter(pk=pk).first()
         if order is None:
             return response.Response({"detail": tr("Payment order not found.", request)}, 404)
-        if order.status != PaymentOrder.STATUS_PENDING:
+        if order.status == PaymentOrder.STATUS_PAID:
+            # The order was already marked paid (webhook / inline admin edit)
+            # but the investment may still be pending: confirm it now.
+            order.investment.confirm()
             return response.Response({"message": tr("This order is already processed.", request)})
         order.mark_paid("admin")
         order.investment.confirm()
@@ -1452,6 +1918,17 @@ class WithdrawalCreateView(views.APIView):
         address = serializer.validated_data["address"]
         network = serializer.validated_data.get("network", coin.chain)
 
+        blocked = verification_blocker(user, "withdraw", request)
+        if blocked:
+            return response.Response(
+                {
+                    "detail": blocked,
+                    "code": "verification_required",
+                    "action": "withdraw",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         with transaction.atomic():
             wallet = Wallet.objects.select_for_update().get(user=user, coin=coin)
             if wallet.withdrawable_balance < amount:
@@ -1607,14 +2084,28 @@ class KYCStatusView(views.APIView):
         user = request.user
         submissions = user.kyc_submissions.order_by("-submitted_at")
         latest = submissions.first()
+        # An approved submission always means the user passed KYC, even if the
+        # user flag was not synced (e.g. status edited inline in the admin).
+        has_approved = user.kyc_submissions.filter(
+            status=KYCSubmission.STATUS_APPROVED
+        ).exists()
+        verified = bool(user.kyc_verified or has_approved)
+        rejected = bool(user.kyc_rejected) and not verified
+        if verified and not user.kyc_verified:
+            user.kyc_verified = True
+            user.kyc_rejected = False
+            user.save(update_fields=["kyc_verified", "kyc_rejected"])
+        status = (
+            latest.status if latest
+            else ("verified" if verified else "not_submitted")
+        )
+        if verified:
+            status = "approved"
         return response.Response(
             {
-                "kyc_verified": user.kyc_verified,
-                "kyc_rejected": user.kyc_rejected,
-                "status": (
-                    latest.status if latest
-                    else ("verified" if user.kyc_verified else "not_submitted")
-                ),
+                "kyc_verified": verified,
+                "kyc_rejected": rejected,
+                "status": status,
                 "reason": latest.reason if latest else "",
                 "required_to_invest": PlatformSettings.get_bool(
                     PlatformSettings.S_KYC_REQUIRED_TO_INVEST, False

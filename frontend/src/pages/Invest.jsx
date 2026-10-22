@@ -254,7 +254,7 @@ export default function Invest() {
           {payment.qr_code || payment.address ? (
             <div style={{ textAlign: 'center', margin: '0 0 1rem' }}>
               <img
-                src={payment.qr_code || `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payment.address)}`}
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(payment.address || payment.qr_code)}`}
                 alt={t('invest.qrAlt')}
                 width={220}
                 height={220}

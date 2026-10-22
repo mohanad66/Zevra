@@ -27,8 +27,8 @@ export default function Landing() {
     <div className="landing">
       <header className="landing-header">
         <div className="brand">
-          <img src="/logo.png" alt="Miyar Trading" className="brand-mark" />
-          <span className="brand-name">Miyar Trading</span>
+          <img src="/logo.png" alt="MYX app" className="brand-mark" />
+          <span className="brand-name">MYX app</span>
         </div>
         <div className="landing-cta">
           <button className="icon-btn" title={t('nav.theme')} onClick={toggleTheme}>
@@ -77,8 +77,8 @@ export default function Landing() {
 
       <footer className="landing-footer">
         <div className="brand">
-          <img src="/logo.png" alt="Miyar Trading" className="brand-mark" />
-          <span className="brand-name">Miyar Trading</span>
+          <img src="/logo.png" alt="MYX app" className="brand-mark" />
+          <span className="brand-name">MYX app</span>
         </div>
         <nav>
           <Link to="/terms">{t('auth.register.terms')}</Link>

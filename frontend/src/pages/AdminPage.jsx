@@ -216,8 +216,9 @@ export default function AdminPage() {
     setPickBusy(true)
     try {
       const current = windows[0]
-      const payload = { active: true }
-      if (ids.length) payload.target_user_ids = ids
+      // Always send the target list: an empty array means "all users", which
+      // clears any specific targeting left over from a previous open.
+      const payload = { active: true, target_user_ids: ids }
       const res = current
         ? await client.post(`/admin/payout-windows/${current.id}/toggle/`, payload)
         : await client.post('/admin/payout-windows/', payload)

@@ -1,3 +1,4 @@
+import hashlib
 import re
 import secrets
 import uuid
@@ -109,6 +110,11 @@ class User(AbstractUser):
     )
     kyc_verified = models.BooleanField(default=False)
     kyc_rejected = models.BooleanField(default=False)
+    # Contact verification (one-time codes). `email` is unique, so an
+    # unverified account still owns the address it registered with.
+    email_verified = models.BooleanField(default=False)
+    phone_verified = models.BooleanField(default=False)
+    verified_at = models.DateTimeField(null=True, blank=True)
     is_frozen = models.BooleanField(default=False)
     banned_until = models.DateTimeField(null=True, blank=True)
     # Presence / activity tracking (updated by ActivityTrackingMiddleware).
@@ -248,6 +254,16 @@ class Investment(models.Model):
         payment order (a provider/Plisio-confirmed order credits as a *real
         payment*, anything else as a *system* credit).
         """
+        updated = type(self).objects.filter(
+            pk=self.pk, status=self.STATUS_PENDING
+        ).update(status=self.STATUS_CONFIRMED, updated_at=timezone.now())
+        if not updated:
+            return
+        self.status = self.STATUS_CONFIRMED
+        self._credit_wallet(source=source, actor=actor)
+
+    def _credit_wallet(self, source=None, actor=None):
+        """Credit the invested balance for a confirmed investment (once)."""
         if source is None:
             order = getattr(self, "payment_order", None)
             source = (
@@ -255,12 +271,6 @@ class Investment(models.Model):
                 if order is not None and order.provider_order_id
                 else BalanceAudit.SRC_SYSTEM
             )
-        updated = type(self).objects.filter(
-            pk=self.pk, status=self.STATUS_PENDING
-        ).update(status=self.STATUS_CONFIRMED, updated_at=timezone.now())
-        if not updated:
-            return
-        self.status = self.STATUS_CONFIRMED
         wallet, _ = Wallet.objects.get_or_create(
             user_id=self.user_id, coin_id=self.coin_id
         )
@@ -282,6 +292,33 @@ class Investment(models.Model):
         from api.referrals import distribute_referral_awards
 
         distribute_referral_awards(self)
+
+    def save(self, *args, **kwargs):
+        """Keep the wallet in sync when ``status`` is changed outside confirm().
+
+        Editing an investment to "confirmed" in the Django admin (or any other
+        caller that just flips the status and calls save()) must credit the
+        balance. ``confirm()`` uses a queryset ``update()`` and never hits this
+        method, so the credit cannot happen twice.
+        """
+        previous_status = None
+        if self.pk and not self._state.adding:
+            previous_status = (
+                type(self)
+                .objects.filter(pk=self.pk)
+                .values_list("status", flat=True)
+                .first()
+            )
+        super().save(*args, **kwargs)
+        if (
+            self.status == self.STATUS_CONFIRMED
+            and previous_status != self.STATUS_CONFIRMED
+        ):
+            self._credit_wallet()
+            order = getattr(self, "payment_order", None)
+            if order is not None and order.status != PaymentOrder.STATUS_PAID:
+                order.mark_paid(order.tx_hash or "")
+
 
 
 class Payout(models.Model):
@@ -726,6 +763,27 @@ class PaymentOrder(models.Model):
             self.tx_hash = tx_hash
         self.save(update_fields=["status", "tx_hash", "updated_at"])
 
+    def save(self, *args, **kwargs):
+        """Confirm the linked investment whenever the order becomes paid.
+
+        The Django admin (or a webhook) may flip the order to "paid" directly;
+        previously that left the investment pending and the invested balance
+        unchanged. Doing it here makes every paid order credit the wallet.
+        """
+        previous_status = None
+        if self.pk and not self._state.adding:
+            previous_status = (
+                type(self)
+                .objects.filter(pk=self.pk)
+                .values_list("status", flat=True)
+                .first()
+            )
+        super().save(*args, **kwargs)
+        if self.status == self.STATUS_PAID and previous_status != self.STATUS_PAID:
+            investment = getattr(self, "investment", None)
+            if investment is not None:
+                investment.confirm()
+
 
 class Withdrawal(models.Model):
     STATUS_PENDING = "pending"
@@ -858,6 +916,24 @@ class KYCSubmission(models.Model):
     def __str__(self):
         return f"{self.user.email} KYC [{self.status}]"
 
+    def save(self, *args, **kwargs):
+        """Keep the user's KYC flags in sync no matter who changed the status.
+
+        Admin can approve a submission by editing the ``status`` field inline
+        (no action, no API call), so the sync has to live on the model
+        itself instead of only inside the admin/view code paths.
+        """
+        super().save(*args, **kwargs)
+        if self.status == self.STATUS_APPROVED:
+            self.user.kyc_verified = True
+            self.user.kyc_rejected = False
+        elif self.status == self.STATUS_REJECTED:
+            self.user.kyc_verified = False
+            self.user.kyc_rejected = True
+        else:
+            return
+        self.user.save(update_fields=["kyc_verified", "kyc_rejected"])
+
 
 class Notification(models.Model):
     TYPE_ANNOUNCEMENT = "announcement"
@@ -978,6 +1054,9 @@ class PlatformSettings(models.Model):
     S_PAYOUT_DURATION_HOURS = "payout_duration_hours"
     S_KYC_REQUIRED_TO_INVEST = "kyc_required_to_invest"
     S_KYC_REQUIRED_TO_WITHDRAW = "kyc_required_to_withdraw"
+    S_EMAIL_VERIFICATION_REQUIRED = "email_verification_required"
+    S_PHONE_VERIFICATION_REQUIRED = "phone_verification_required"
+    S_VERIFICATION_UI_ENABLED = "verification_ui_enabled"
     S_WITHDRAW_FEE_PERCENT = "withdraw_fee_percent"
     S_BONUS_PERCENT = "bonus_payout_percent"
     S_MIN_WITHDRAWAL = "min_withdrawal_amount"
@@ -1057,6 +1136,21 @@ class PlatformSettings(models.Model):
         return months * 720 + weeks * 168 + days * 24 + hours
 
     @classmethod
+    def verification_channels(cls):
+        """Channels the platform can actually deliver a code on.
+
+        Email is always offered (Brevo API, SMTP, or the console backend in
+        dev). SMS is only offered when a real provider is configured — the
+        ``console`` backend only logs the code, so offering it to users would
+        leave them waiting for a message that was never sent.
+        """
+        sms_backend = (getattr(settings, "SMS_BACKEND", "") or "console").strip().lower()
+        channels = [OneTimeCode.CHANNEL_EMAIL]
+        if sms_backend not in {"", "none", "disabled", "off", "console"}:
+            channels.append(OneTimeCode.CHANNEL_SMS)
+        return channels
+
+    @classmethod
     def public_map(cls):
         return {
             "l1_percent": cls.get_decimal(cls.S_REFERRAL_L1, 1),
@@ -1073,6 +1167,14 @@ class PlatformSettings(models.Model):
             "min_investment": cls.get_decimal(cls.S_MIN_INVESTMENT, 0),
             "kyc_required_to_invest": cls.get_bool(cls.S_KYC_REQUIRED_TO_INVEST, False),
             "kyc_required_to_withdraw": cls.get_bool(cls.S_KYC_REQUIRED_TO_WITHDRAW, False),
+            "email_verification_required": cls.get_bool(
+                cls.S_EMAIL_VERIFICATION_REQUIRED, False
+            ),
+            "phone_verification_required": cls.get_bool(
+                cls.S_PHONE_VERIFICATION_REQUIRED, False
+            ),
+            "verification_channels": cls.verification_channels(),
+            "verification_ui_enabled": cls.get_bool(cls.S_VERIFICATION_UI_ENABLED, True),
             "withdraw_fee_percent": cls.get_decimal(cls.S_WITHDRAW_FEE_PERCENT, 1),
             "min_withdrawal": cls.get_decimal(cls.S_MIN_WITHDRAWAL, 10),
             "default_lang": cls.get(cls.S_DEFAULT_LANG, "en"),
@@ -1258,4 +1360,148 @@ def default_referral_levels():
         PlatformSettings.S_REFERRAL_L2: "0.5",
         PlatformSettings.S_REFERRAL_L3: "0.25",
     }
+
+
+class OneTimeCode(models.Model):
+    """A short-lived, single-use verification code sent by email or SMS.
+
+    Only the SHA-256 digest of the code is stored, so a database dump cannot be
+    replayed against live accounts. Codes are consumed once and expire quickly.
+    """
+
+    CHANNEL_EMAIL = "email"
+    CHANNEL_SMS = "sms"
+    CHANNEL_CHOICES = [
+        (CHANNEL_EMAIL, "Email"),
+        (CHANNEL_SMS, "SMS"),
+    ]
+
+    PURPOSE_REGISTER = "register"
+    PURPOSE_LOGIN = "login"
+    PURPOSE_INVEST = "invest"
+    PURPOSE_WITHDRAW = "withdraw"
+    PURPOSE_KYC = "kyc"
+    PURPOSE_CHANGE_CONTACT = "change_contact"
+    PURPOSE_CHOICES = [
+        (PURPOSE_REGISTER, "Account activation"),
+        (PURPOSE_LOGIN, "Sign in"),
+        (PURPOSE_INVEST, "Confirm investment"),
+        (PURPOSE_WITHDRAW, "Confirm withdrawal"),
+        (PURPOSE_KYC, "Identity verification"),
+        (PURPOSE_CHANGE_CONTACT, "Change email or phone"),
+    ]
+
+    CODE_LENGTH = 6
+    TTL_MINUTES = 10
+    MAX_ATTEMPTS = 5
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="one_time_codes"
+    )
+    channel = models.CharField(max_length=10, choices=CHANNEL_CHOICES)
+    purpose = models.CharField(
+        max_length=24, choices=PURPOSE_CHOICES, default=PURPOSE_REGISTER
+    )
+    code_hash = models.CharField(max_length=64)
+    # Delivery target, stored masked (e.g. "j***n@example.com") for the UI.
+    destination = models.CharField(max_length=160, blank=True, default="")
+    attempts = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=MAX_ATTEMPTS)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "channel", "purpose", "consumed_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} {self.channel}/{self.purpose}"
+
+    # ---------------------------------------------------------------- helpers
+    @property
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    @property
+    def is_consumed(self):
+        return self.consumed_at is not None
+
+    @property
+    def is_usable(self):
+        """Still valid for verification attempts."""
+        return (
+            not self.is_consumed
+            and not self.is_expired
+            and self.attempts < self.max_attempts
+        )
+
+    def verify_code(self, code):
+        """Constant-time comparison; consumes the code on a correct match."""
+        if not self.is_usable:
+            return False
+        expected = self.code_hash.encode("utf-8")
+        got = self.hash_code(code or "").encode("utf-8")
+        if not secrets.compare_digest(expected, got):
+            self.attempts = self.attempts + 1
+            self.save(update_fields=["attempts"])
+            return False
+        self.consumed_at = timezone.now()
+        self.save(update_fields=["consumed_at"])
+        return True
+
+    # ------------------------------------------------------------ constructors
+    @classmethod
+    def hash_code(cls, code):
+        return hashlib.sha256(str(code).encode("utf-8")).hexdigest()
+
+    @classmethod
+    def generate_code(cls):
+        return f"{secrets.randbelow(10**cls.CODE_LENGTH):0{cls.CODE_LENGTH}d}"
+
+    @classmethod
+    def issue(cls, user, channel, purpose, destination=""):
+        """Issue a fresh code, invalidating older ones for the same target."""
+        code = cls.generate_code()
+        instance = cls.objects.create(
+            user=user,
+            channel=channel,
+            purpose=purpose,
+            code_hash=cls.hash_code(code),
+            destination=destination,
+            expires_at=timezone.now() + timedelta(minutes=cls.TTL_MINUTES),
+        )
+        return instance, code
+
+    @classmethod
+    def latest_pending(cls, user, channel, purpose):
+        return (
+            cls.objects.filter(
+                user=user,
+                channel=channel,
+                purpose=purpose,
+                consumed_at__isnull=True,
+                expires_at__gt=timezone.now(),
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    @staticmethod
+    def mask_email(email):
+        email = (email or "").strip()
+        if "@" not in email:
+            return "****"
+        local, domain = email.rsplit("@", 1)
+        head = local[:1] + "***" if local else "***"
+        return f"{head}@{domain}"
+
+    @staticmethod
+    def mask_phone(phone):
+        phone = (phone or "").strip()
+        if len(phone) <= 4:
+            return "****"
+        return f"{phone[:3]}{'*' * (len(phone) - 7)}{phone[-4:]}"
 

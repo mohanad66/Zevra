@@ -17,8 +17,8 @@ export default defineConfig(({ mode }) => ({
             registerType: 'autoUpdate',
             includeAssets: ['favicon.svg', 'icons.svg'],
             manifest: {
-              name: 'Miyar Trading — Invest & Trade Stablecoins',
-              short_name: 'Miyar Trading',
+              name: 'MYX app — Invest & Trade Stablecoins',
+              short_name: 'MYX app',
               description:
                 'Invest in stablecoins, track live market prices, invite friends and earn three-level referral rewards.',
               lang: 'en',

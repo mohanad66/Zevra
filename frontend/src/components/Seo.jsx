@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
-const SITE = 'Miyar Trading'
+const SITE = 'MYX app'
 const DEFAULT_DESC =
-  'Miyar Trading is a secure platform to invest in stablecoins, track live crypto market prices, and earn three-level referral rewards — on web, Android and iOS.'
+  'MYX app is a secure platform to invest in stablecoins, track live crypto market prices, and earn three-level referral rewards — on web, Android and iOS.'
 
 const ROUTES = {
   '/': { title: `${SITE} — Invest & Trade Stablecoins`, desc: DEFAULT_DESC, private: false },

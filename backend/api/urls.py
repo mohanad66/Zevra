@@ -14,6 +14,11 @@ urlpatterns = [
     path("auth/change-password/", views.ChangePasswordView.as_view(), name="change_password"),
     path("auth/delete/", views.DeleteAccountView.as_view(), name="delete_account"),
 
+    # contact verification (one-time codes)
+    path("auth/verify/status/", views.VerificationStatusView.as_view(), name="verify_status"),
+    path("auth/verify/send/", views.VerificationSendView.as_view(), name="verify_send"),
+    path("auth/verify/confirm/", views.VerificationConfirmView.as_view(), name="verify_confirm"),
+
     # market / coins
     path("market/", views.MarketView.as_view(), name="market"),
     path("coins/", views.CoinListView.as_view(), name="coins"),
@@ -21,6 +26,7 @@ urlpatterns = [
 
     # wallet
     path("dashboard/", views.DashboardView.as_view(), name="dashboard"),
+    path("growth/", views.PortfolioGrowthView.as_view(), name="portfolio_growth"),
     path("wallet/<int:coin_id>/", views.WalletDetailView.as_view(), name="wallet_detail"),
 
     # investing / withdrawing
@@ -64,6 +70,9 @@ urlpatterns = [
     # kyc
     path("kyc/", views.KYCStatusView.as_view(), name="kyc_status"),
     path("kyc/submit/", views.KYCSubmitView.as_view(), name="kyc_submit"),
+
+    # onboarding checklist (first investment + first withdrawal)
+    path("onboarding/", views.OnboardingStatusView.as_view(), name="onboarding_status"),
 
     # referrals
     path("referrals/", views.ReferralView.as_view(), name="referrals"),

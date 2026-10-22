@@ -6,6 +6,7 @@ import { useI18n } from '../i18n'
 import { client } from '../api/client'
 import { compressImage } from '../utils/image'
 import Loading from '../components/Loading'
+// import VerifyEmail from '../components/VerifyEmail'
 import { Camera, ShieldCheck, KeyRound, LogOut, Trash2, Plus, CheckCircle2 } from 'lucide-react'
 
 // KYC document types. ``value`` is the token stored by the API and shown in the
@@ -81,6 +82,7 @@ export default function Profile() {
   const [compressing, setCompressing] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [verificationUiEnabled, setVerificationUiEnabled] = useState(true)
   const ar = lang === 'ar'
 
   async function pickImage(file, apply) {
@@ -116,6 +118,17 @@ export default function Profile() {
   }
 
   useEffect(() => { load().catch(() => {}).finally(() => setLoading(false)) }, [])
+
+  useEffect(() => {
+    client
+      .get('/settings/')
+      .then((res) => {
+        if (res.data && typeof res.data.verification_ui_enabled === 'boolean') {
+          setVerificationUiEnabled(res.data.verification_ui_enabled)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (location.state?.kyc && kycRef.current) {
@@ -243,6 +256,22 @@ export default function Profile() {
       <div className="page-head">
         <div><h2>{t('pf.title')}</h2><p>{t('pf.subtitle')}</p></div>
       </div>
+
+      {/* {!user?.email_verified ? (
+        verificationUiEnabled ? (
+          <VerifyEmail purpose="register" onVerified={refreshUser} />
+        ) : (
+          <div className="card verify-ok">
+            <ShieldCheck size={18} />
+            <span>{t('verify.done')}</span>
+          </div>
+        )
+      ) : (
+        <div className="card verify-ok">
+          <ShieldCheck size={18} />
+          <span>{t('verify.done')}</span>
+        </div>
+      )} */}
 
       <div className="profile-grid">
         <form className="card form" onSubmit={saveProfile}>

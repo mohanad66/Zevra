@@ -109,10 +109,12 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             "id", "email", "first_name", "last_name", "phone", "avatar", "avatar_url",
             "invite_code", "referral_link", "kyc_verified", "kyc_rejected", "is_frozen",
-            "banned_until", "is_staff", "created_at", "full_name", "has_kyc_pending",
+            "email_verified", "phone_verified", "verified_at", "banned_until", "is_staff",
+            "created_at", "full_name", "has_kyc_pending",
         ]
-        read_only_fields = ["invite_code", "kyc_verified", "kyc_rejected", "is_frozen", "banned_until", "is_staff", "created_at"]
-
+        read_only_fields = ["invite_code", "kyc_verified", "kyc_rejected", "is_frozen",
+                            "email_verified", "phone_verified", "verified_at", "banned_until",
+                            "is_staff", "created_at"]
     referral_link = serializers.SerializerMethodField()
 
     def get_referral_link(self, obj):
@@ -749,6 +751,9 @@ class SettingsSerializer(serializers.Serializer):
     kyc_required_to_withdraw = serializers.BooleanField()
     min_withdrawal = serializers.CharField()
     withdraw_fee_percent = serializers.CharField()
+    verification_ui_enabled = serializers.BooleanField(required=False)
+    email_verification_required = serializers.BooleanField(required=False)
+    phone_verification_required = serializers.BooleanField(required=False)
 
     def get_referral_levels(self, obj):
         return [

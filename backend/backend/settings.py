@@ -12,6 +12,38 @@ from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _load_env_file(path):
+    """Read a .env file into os.environ so local `runserver` sees what Docker does.
+
+    Nothing in this repo loaded .env before: docker-compose supplies it through
+    `env_file:`, but a bare `manage.py runserver` never did, which silently left
+    BREVO_API_KEY unset and pushed verification mail down the console backend,
+    where Django reports success without delivering anything.
+
+    Real environment variables always win (setdefault), so compose's
+    `environment:` block still overrides anything defined here. A missing file
+    is expected and not an error.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key:
+            os.environ.setdefault(key, value)
+
+
+_load_env_file(BASE_DIR.parent / ".env")
+
 # "development" (default, local) or "production". Production flips safe defaults.
 ENV = os.environ.get("DJANGO_ENV", "development").strip().lower()
 IS_PRODUCTION = ENV == "production"
@@ -264,7 +296,27 @@ EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") == "1"
-DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Miyar Trading <no-reply@miyartrading.com>")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "MYX app <no-reply@miyartrading.com>")
+
+# Brand + outbound verification.
+BRAND_NAME = os.environ.get("BRAND_NAME", "MYX app")
+
+# Brevo (free tier: 300 emails/day). When BREVO_API_KEY is set the HTTP API is
+# used; otherwise Django's SMTP backend is used, which also works with Brevo's
+# SMTP relay (EMAIL_HOST=smtp-relay.brevo.com).
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "").strip()
+BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL", "").strip()
+# An explicitly empty BREVO_SENDER_NAME= in .env must not blank the sender name,
+# so fall back to BRAND_NAME when the value is empty rather than only when unset.
+BREVO_SENDER_NAME = os.environ.get("BREVO_SENDER_NAME", "").strip() or BRAND_NAME
+
+# SMS is pluggable: "console" (logs the code, no provider needed), "twilio",
+# or "none". There is no genuinely free SMS provider, so email is the primary
+# verification channel and SMS is enabled by adding provider credentials.
+SMS_BACKEND = os.environ.get("SMS_BACKEND", "console").strip().lower()
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
 
 # Production-only transport security (HTTPS, HSTS, secure cookies).
 if not DEBUG:

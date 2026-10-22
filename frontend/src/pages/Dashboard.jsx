@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { client } from '../api/client'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
-import { fmtCrypto } from '../components/Format'
+import { useToast } from '../components/Toast'
+import { client, apiError } from '../api/client'
+import { fmt, fmtCrypto } from '../components/Format'
 import Loading from '../components/Loading'
+// import VerifyEmail from '../components/VerifyEmail'
+import OnboardingChecklist from '../components/OnboardingChecklist'
 import { TrendingUp, Wallet, Users, Trophy, ArrowDownToLine, Copy, Check, RefreshCw, Gift, Clock, Loader2 } from 'lucide-react'
 
 export default function Dashboard() {
@@ -13,6 +15,7 @@ export default function Dashboard() {
   const [windows, setWindows] = useState([])
   const [claiming, setClaiming] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [verificationUiEnabled, setVerificationUiEnabled] = useState(true)
   const { user, apiError } = useAuth()
   const { toast } = useToast()
   const { t } = useI18n()
@@ -75,6 +78,11 @@ export default function Dashboard() {
         </div>
         <button className="btn ghost" onClick={load}><RefreshCw size={16} /> {t('common.refresh')}</button>
       </div>
+
+      {/* {!user?.email_verified && verificationUiEnabled && (
+        <VerifyEmail purpose="register" onVerified={load} compact />
+      )} */}
+      <OnboardingChecklist />
 
       {windows.map((w) => (
         <div className="card payout-claim" key={w.id}>

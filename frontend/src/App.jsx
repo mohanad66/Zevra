@@ -17,6 +17,7 @@ const Market = lazy(() => import('./pages/Market'))
 const Invest = lazy(() => import('./pages/Invest'))
 const Withdraw = lazy(() => import('./pages/Withdraw'))
 const Payouts = lazy(() => import('./pages/Payouts'))
+const Growth = lazy(() => import('./pages/Growth'))
 const Referrals = lazy(() => import('./pages/Referrals'))
 const Profile = lazy(() => import('./pages/Profile'))
 const AdminPage = lazy(() => import('./pages/AdminPage'))
@@ -81,6 +82,7 @@ export default function App() {
                         <Route path="/invest" element={<Invest />} />
                         <Route path="/withdraw" element={<Withdraw />} />
                         <Route path="/payouts" element={<Payouts />} />
+                        <Route path="/growth" element={<Growth />} />
                         <Route path="/referrals" element={<Referrals />} />
                         <Route path="/profile" element={<Profile />} />
                       </Route>

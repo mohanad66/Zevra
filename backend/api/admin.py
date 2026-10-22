@@ -59,10 +59,10 @@ class UserAdmin(BaseUserAdmin):
     ordering = ("-created_at",)
     fieldsets = BaseUserAdmin.fieldsets + (
         ("Referral tree", {"fields": ("level1_count", "level2_count", "level3_count")}),
-        ("Miyar Trading profile", {"fields": ("phone", "avatar", "invite_code", "referred_by", "kyc_verified", "kyc_rejected", "is_frozen", "banned_until")}),
+        ("MYX app profile", {"fields": ("phone", "avatar", "invite_code", "referred_by", "kyc_verified", "kyc_rejected", "is_frozen", "banned_until")}),
     )
     add_fieldsets = BaseUserAdmin.add_fieldsets + (
-        ("Miyar Trading profile", {"fields": ("email", "first_name", "last_name", "phone", "referred_by")}),
+        ("MYX app profile", {"fields": ("email", "first_name", "last_name", "phone", "referred_by")}),
     )
     readonly_fields = ("created_at", "level1_count", "level2_count", "level3_count")
 
@@ -399,7 +399,10 @@ class PendingFilter(admin.SimpleListFilter):
     parameter_name = "kycstatus"
 
     def lookups(self, request, model_admin):
-        return KYCSubmission.STATUS + (("any", "Any"),)
+        choices = KYCSubmission.STATUS
+        if isinstance(choices, tuple):
+            choices = list(choices)
+        return list(choices) + [("any", "Any")]
 
     def queryset(self, request, queryset):
         if self.value() in dict(KYCSubmission.STATUS):
@@ -455,6 +458,9 @@ DEFAULT_PLATFORM_SETTINGS = [
     (PlatformSettings.S_PAYOUT_DURATION_HOURS, "48", "Payout window open duration in hours"),
     (PlatformSettings.S_KYC_REQUIRED_TO_INVEST, "0", "Require KYC before a user can invest (1/0)"),
     (PlatformSettings.S_KYC_REQUIRED_TO_WITHDRAW, "0", "Require KYC before a user can withdraw (1/0)"),
+    (PlatformSettings.S_EMAIL_VERIFICATION_REQUIRED, "0", "Require email verification before gated actions (1/0)"),
+    (PlatformSettings.S_PHONE_VERIFICATION_REQUIRED, "0", "Require SMS verification before gated actions (1/0)"),
+    (PlatformSettings.S_VERIFICATION_UI_ENABLED, "1", "Show email/SMS verification UI to users (set to 0 until Brevo is live on server)"),
     (PlatformSettings.S_WITHDRAW_FEE_PERCENT, "1", "Network fee charged on withdrawal, % of amount"),
     (PlatformSettings.S_BONUS_PERCENT, "5", "Profit/seasonal bonus granted by admin, % of invested balance"),
     (PlatformSettings.S_MIN_WITHDRAWAL, "10", "Minimum withdrawal amount"),
