@@ -10,7 +10,6 @@ import Loading from '../components/Loading'
 function MiniChart({ change }) {
   const up = parseFloat(change) >= 0
   const h1 = up ? 12 : 22
-  const h2 = up ? 16 : 18
   const h3 = up ? 10 : 26
   return (
     <svg className="mc" viewBox="0 0 90 36" preserveAspectRatio="none" aria-hidden="true">

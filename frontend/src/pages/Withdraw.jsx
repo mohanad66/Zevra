@@ -113,6 +113,16 @@ export default function Withdraw() {
     return opts
   }, [wallet, chainLabel])
 
+  function chooseCoin(id) {
+    const c = wallets.find((w) => w.coin.id === Number(id))
+    setCoinId(Number(id))
+    if (c) {
+      const map = { ERC20: 'ETH20', POLYGON: 'POL' }
+      const chain = map[(c.coin.chain || '').toUpperCase()] || c.coin.chain
+      if ({ TRC20: 1, ETH20: 1, POL: 1, BEP20: 1, BASE: 1, TON: 1 }[chain]) setNetwork(chain)
+    }
+  }
+
   async function submit(e) {
     e.preventDefault()
     setBusy(true)
@@ -161,25 +171,50 @@ export default function Withdraw() {
         </div>
       )}
 
-      <form className="card form" onSubmit={submit}>
-        <label>
-          {t('wd.coin')}
-          <select value={coinId ?? ''} onChange={(e) => {
-            const c = wallets.find((w) => w.coin.id === Number(e.target.value))
-            setCoinId(Number(e.target.value))
-            if (c) {
-              const map = { ERC20: 'ETH20', POLYGON: 'POL' }
-              const chain = map[(c.coin.chain || '').toUpperCase()] || c.coin.chain
-              if ({ TRC20:1, ETH20:1, POL:1, BEP20:1, BASE:1, TON:1 }[chain]) setNetwork(chain)
-            }
-          }}>
-            {wallets.map((w) => (
-              <option key={w.coin.id} value={w.coin.id}>
-                {w.coin.symbol} — {t('wd.withdrawable')} {fmtCrypto(w.withdrawable_balance)}
-              </option>
-            ))}
-          </select>
-        </label>
+      <form className="card form deposit-form" onSubmit={submit}>
+        <div className="coin-picker">
+          {wallets.map((w) => (
+            <button
+              type="button"
+              key={w.coin.id}
+              className={`coin-opt ${w.coin.id === coinId ? 'active' : ''}`}
+              onClick={() => chooseCoin(w.coin.id)}
+            >
+              {w.coin.icon_url ? <img src={w.coin.icon_url} alt="" /> : <span className="coin-fallback">{w.coin.symbol[0]}</span>}
+              <span>
+                <b>{w.coin.name}</b>
+                <small>{w.coin.symbol} · {fmtCrypto(w.withdrawable_balance)}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="deposit-amount-card">
+          <span className="deposit-amount-label">{t('wd.amountLabel')}</span>
+          <div className="deposit-amount-field">
+            <span className="deposit-amount-icon">
+              {wallet?.coin.icon_url ? <img src={wallet.coin.icon_url} alt="" /> : (wallet?.coin.symbol?.[0] || 'W')}
+            </span>
+            <input
+              className="deposit-amount-input"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              required
+              aria-label={t('wd.amountLabel')}
+            />
+            <span className="deposit-amount-sym">{wallet?.coin.symbol}</span>
+          </div>
+          <div className="quick-amounts">
+            <button type="button" className="chip" onClick={() => setAmount(String(wallet?.withdrawable_balance ?? ''))}>
+              {t('wd.max')} ({wallet ? fmtCrypto(wallet.withdrawable_balance) : '—'})
+            </button>
+          </div>
+        </div>
 
         {wallet && (
           <div className="invest-summary">
@@ -190,32 +225,23 @@ export default function Withdraw() {
           </div>
         )}
 
-        <label>
-          {t('wd.amountLabel')}
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
-            required
-          />
-        </label>
-        <div className="quick-amounts">
-          <button type="button" className="chip" onClick={() => setAmount(String(wallet?.withdrawable_balance ?? ''))}>
-            {t('wd.max')} ({wallet ? fmtCrypto(wallet.withdrawable_balance) : '—'})
-          </button>
-        </div>
-
-        <label>
-          {t('wd.network')}
-          <select value={network} onChange={(e) => setNetwork(e.target.value)}>
+        <div className="saved-accounts" role="radiogroup" aria-label={t('wd.network')}>
+          <span className="muted small">{t('wd.network')}</span>
+          <div className="quick-amounts">
             {networkOptions.map((n) => (
-              <option key={n.id} value={n.id}>{n.label}</option>
+              <button
+                type="button"
+                key={n.id}
+                role="radio"
+                aria-checked={network === n.id}
+                className={`chip ${network === n.id ? 'chip-active' : ''}`}
+                onClick={() => setNetwork(n.id)}
+              >
+                {n.label}{n.hint ? ` · ${n.hint}` : ''}
+              </button>
             ))}
-          </select>
-        </label>
+          </div>
+        </div>
 
         <label>
           {t('wd.receiveTo')}

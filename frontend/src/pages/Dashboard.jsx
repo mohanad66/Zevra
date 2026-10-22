@@ -3,8 +3,8 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
 import { useToast } from '../components/Toast'
-import { client, apiError } from '../api/client'
-import { fmt, fmtCrypto } from '../components/Format'
+import { client } from '../api/client'
+import { fmtCrypto } from '../components/Format'
 import Loading from '../components/Loading'
 // import VerifyEmail from '../components/VerifyEmail'
 import OnboardingChecklist from '../components/OnboardingChecklist'
@@ -15,7 +15,6 @@ export default function Dashboard() {
   const [windows, setWindows] = useState([])
   const [claiming, setClaiming] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [verificationUiEnabled, setVerificationUiEnabled] = useState(true)
   const { user, apiError } = useAuth()
   const { toast } = useToast()
   const { t } = useI18n()
@@ -83,6 +82,18 @@ export default function Dashboard() {
         <VerifyEmail purpose="register" onVerified={load} compact />
       )} */}
       <OnboardingChecklist />
+
+      <div className="quick-deposit-card">
+        <div className="quick-deposit-main">
+          <span className="deposit-amount-label">{t('dash.withdrawableBalance')}</span>
+          <span className="quick-deposit-value">$ {fmtCrypto(data.totals.total_withdrawable)}</span>
+          <span className="quick-deposit-note">{t('dash.readyToWithdraw')}</span>
+        </div>
+        <div className="quick-deposit-actions">
+          <Link to="/invest" className="btn primary"><TrendingUp size={16} /> {t('nav.invest')}</Link>
+          <Link to="/withdraw" className="btn ghost"><ArrowDownToLine size={16} /> {t('nav.withdraw')}</Link>
+        </div>
+      </div>
 
       {windows.map((w) => (
         <div className="card payout-claim" key={w.id}>

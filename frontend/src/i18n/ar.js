@@ -2,7 +2,7 @@ export const ar = {
   // nav
   'nav.dashboard': 'الرئيسية',
   'nav.market': 'السوق',
-  'nav.invest': 'استثمر',
+  'nav.invest': 'إيداع',
   'nav.withdraw': 'سحب',
   'nav.payouts': 'الدفعات',
   'nav.referrals': 'الإحالات',
@@ -22,6 +22,7 @@ export const ar = {
   "nav.support":"لتواصل مع مشرف MYX",
   "nav.community": "الدخول الى مجتمع أعضاء MYX",
   'nav.growth': 'النمو',
+  'nav.more': 'المزيد',
 
   // growth page
   'growth.title': 'نمو العملات',
@@ -174,8 +175,8 @@ export const ar = {
   'market.h24': '24س',
 
   // invest
-  'invest.title': 'استثمر',
-  'invest.subtitle': 'اختر عملة ومبلغاً لتنمية محفظتك.',
+  'invest.title': 'إيداع',
+  'invest.subtitle': 'اختر العملة والمبلغ المراد إيداعه.',
   'invest.coin': 'العملة',
   'invest.amount': 'المبلغ ({symbol})',
   'invest.min': 'الحد الأدنى',
@@ -188,7 +189,7 @@ export const ar = {
   'invest.confirmed': 'تم تأكيد الاستثمار وإيداع الرصيد.',
   'invest.kycRequired': 'مطلوب التحقق من الهوية (KYC) للاستثمار.',
   'invest.closing': 'إغلاق الفاتورة عند فتح نافذة الدفع…',
-  'invest.toInvest': 'المبلغ المراد استثماره',
+  'invest.toInvest': 'المبلغ المراد إيداعه',
   'invest.submit': 'إرسال الاستثمار',
   'invest.processing': 'جارٍ إنشاء الطلب…',
   'invest.noCoins': 'لا توجد عملات متاحة بعد.',
@@ -248,6 +249,8 @@ export const ar = {
 
   // payouts
   'po.title': 'الدفعات',
+  'po.totalReceived': 'إجمالي المستلم',
+  'po.allTime': 'كل الوقت',
   'po.subtitle': 'الدفعات التي استلمتها من نوافذ الدفعات والمكافآت.',
   'po.openWindows': 'نوافذ الدفعات المفتوحة',
   'po.noWindows': 'لا توجد نوافذ دفعات مفتوحة حالياً.',

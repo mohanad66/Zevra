@@ -2,7 +2,7 @@ export const en = {
   // nav
   'nav.dashboard': 'Dashboard',
   'nav.market': 'Market',
-  'nav.invest': 'Invest',
+  'nav.invest': 'Deposit',
   'nav.withdraw': 'Withdraw',
   'nav.payouts': 'Payouts',
   'nav.referrals': 'Referrals',
@@ -22,6 +22,7 @@ export const en = {
   "nav.support": "Contact with MYX Admin",
   "nav.community": "Join MYX Community",
   'nav.growth': 'Growth',
+  'nav.more': 'More',
 
   // growth page
   'growth.title': 'Coins growth',
@@ -175,8 +176,8 @@ export const en = {
   'market.h24': '24h',
 
   // invest
-  'invest.title': 'Invest',
-  'invest.subtitle': 'Choose a coin and amount to grow your portfolio.',
+  'invest.title': 'Deposit',
+  'invest.subtitle': 'Choose a coin and amount to deposit.',
   'invest.coin': 'Coin',
   'invest.amount': 'Amount ({symbol})',
   'invest.min': 'Minimum',
@@ -189,7 +190,7 @@ export const en = {
   'invest.confirmed': 'Investment confirmed and balance credited.',
   'invest.kycRequired': 'KYC verification is required to invest.',
   'invest.closing': 'Closing the invoice when the payment window opens…',
-  'invest.toInvest': 'Amount to invest',
+  'invest.toInvest': 'Amount to deposit',
   'invest.submit': 'Submit investment',
   'invest.processing': 'Creating order…',
   'invest.noCoins': 'No coins available yet.',
@@ -249,6 +250,8 @@ export const en = {
 
   // payouts
   'po.title': 'Payouts',
+  'po.totalReceived': 'Total received',
+  'po.allTime': 'All time',
   'po.subtitle': 'Payouts you received from payouts windows and bonuses.',
   'po.openWindows': 'Open payout windows',
   'po.noWindows': 'No payout windows open right now.',

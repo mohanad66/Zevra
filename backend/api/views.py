@@ -465,7 +465,7 @@ class OnboardingStatusView(views.APIView):
                 "done": bool(getattr(user, "kyc_verified", False)),
                 "required": bool(cfg.get("kyc_required_to_invest", False) or cfg.get("kyc_required_to_withdraw", False)),
                 "cta": tr("Start KYC", request),
-                "href": "/profile",
+                "href": "/profile#kyc",
             },
             {
                 "key": "first_invest",

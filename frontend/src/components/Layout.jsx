@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom'
-import { LineChart, TrendingUp, ArrowDownToLine, Users, UserCircle, LogOut, Home, Shield, Bell, Globe, LifeBuoy, Sun, Moon, Coins } from 'lucide-react'
+import { LineChart, TrendingUp, ArrowDownToLine, Users, LogOut, Home, Shield, Bell, Globe, LifeBuoy, Sun, Moon, Coins, Menu, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
 import { useTheme } from '../theme'
@@ -13,17 +13,24 @@ function useNavLabels(t) {
     { to: '/market', label: t('nav.market'), icon: LineChart },
     { to: '/invest', label: t('nav.invest'), icon: TrendingUp },
     { to: '/withdraw', label: t('nav.withdraw'), icon: ArrowDownToLine },
-    { to: '/referrals', label: t('nav.referrals'), icon: Users },
-    { to: '/profile', label: t('nav.profile'), icon: UserCircle },
   ]
 }
 
-/* Payout windows are a real earnings feature but the page had no nav entry at
-   all — it was only reachable from one link inside Withdraw. Seven items
-   overflow the bottom bar on a phone, so it joins the top nav only. */
+/* Payout windows and Growth are real features but had no nav entry at all.
+   They join the top nav only, so the phone bar keeps Deposit exactly in the
+   middle (the profile link is gone — the avatar in the top bar is the profile).
+   On phones the remaining pages live in the "More" sheet. */
 function useTopNavLabels(t) {
-  const links = useNavLabels(t)
-  return [...links.slice(0, 4), { to: '/payouts', label: t('nav.payouts'), icon: Coins }, { to: '/growth', label: t('nav.growth'), icon: TrendingUp }, ...links.slice(4)]
+  const [dashboard, market, deposit, withdraw] = useNavLabels(t)
+  return [
+    dashboard,
+    market,
+    withdraw,
+    deposit,
+    { to: '/payouts', label: t('nav.payouts'), icon: Coins },
+    { to: '/growth', label: t('nav.growth'), icon: TrendingUp },
+    { to: '/referrals', label: t('nav.referrals'), icon: Users },
+  ]
 }
 
 function NotificationBell() {
@@ -124,8 +131,15 @@ export default function Layout() {
   const { user, logout } = useAuth()
   const { lang, t, changeLang } = useI18n()
   const { theme, toggleTheme } = useTheme()
+  const [moreOpen, setMoreOpen] = useState(false)
   const links = useNavLabels(t)
   const topLinks = useTopNavLabels(t)
+  const moreLinks = [
+    { to: '/payouts', label: t('nav.payouts'), icon: Coins },
+    { to: '/growth', label: t('nav.growth'), icon: TrendingUp },
+    { to: '/referrals', label: t('nav.referrals'), icon: Users },
+    ...(user?.is_staff ? [{ to: '/admin', label: t('nav.admin'), icon: Shield }] : []),
+  ]
 
   return (
     <div className="app">
@@ -155,13 +169,13 @@ export default function Layout() {
             <span className="lang-label">{lang === 'ar' ? 'EN' : 'عربي'}</span>
           </button>
           <NotificationBell />
-          <NavLink to="/profile" className="avatar-chip">
+          <NavLink to="/profile" className="avatar-chip" title={user?.full_name || user?.email}>
             {user?.avatar_url ? (
               <img src={user.avatar_url} alt="avatar" />
             ) : (
               <span className="avatar-fallback">{user?.email?.[0]?.toUpperCase() || 'U'}</span>
             )}
-            <span className="uname">{user?.full_name || user?.email}</span>
+            <span className="avatar-label">{t('nav.profile')}</span>
           </NavLink>
           <button className="icon-btn" title={t('nav.logout')} onClick={() => logout()}>
             <LogOut size={18} />
@@ -175,18 +189,57 @@ export default function Layout() {
 
       <nav className="bottomnav">
         {links.map((l) => (
-          <NavLink key={l.to} to={l.to} className={({ isActive }) => (isActive ? 'bn-link active' : 'bn-link')}>
-            <l.icon size={20} />
-            <span>{l.label}</span>
-          </NavLink>
+          l.to === '/invest' ? (
+            <NavLink
+              key={l.to}
+              to={l.to}
+              title={l.label}
+              className={({ isActive }) => (isActive ? 'bn-link bn-deposit active' : 'bn-link bn-deposit')}
+            >
+              <span className="bn-deposit-circle"><l.icon size={22} /></span>
+              <span>{l.label}</span>
+            </NavLink>
+          ) : (
+            <NavLink key={l.to} to={l.to} className={({ isActive }) => (isActive ? 'bn-link active' : 'bn-link')}>
+              <l.icon size={20} />
+              <span>{l.label}</span>
+            </NavLink>
+          )
         ))}
-        {user?.is_staff && (
-          <NavLink to="/admin" className={({ isActive }) => (isActive ? 'bn-link active' : 'bn-link')}>
-            <Shield size={20} />
-            <span>{t('nav.admin')}</span>
-          </NavLink>
-        )}
+        <button
+          type="button"
+          className={moreOpen ? 'bn-link active' : 'bn-link'}
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen((v) => !v)}
+        >
+          <Menu size={20} />
+          <span>{t('nav.more')}</span>
+        </button>
       </nav>
+
+      {moreOpen && (
+        <div className="more-backdrop" onClick={() => setMoreOpen(false)}>
+          <div className="more-sheet" role="dialog" aria-label={t('nav.more')} onClick={(e) => e.stopPropagation()}>
+            <div className="more-sheet-head">
+              <strong>{t('nav.more')}</strong>
+              <button type="button" className="icon-btn" onClick={() => setMoreOpen(false)} aria-label={t('common.close')}>
+                <X size={18} />
+              </button>
+            </div>
+            {moreLinks.map((l) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                className={({ isActive }) => (isActive ? 'more-link active' : 'more-link')}
+                onClick={() => setMoreOpen(false)}
+              >
+                <l.icon size={18} />
+                <span>{l.label}</span>
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      )}
 
       <footer className="footer">
         <div className="footer-social">

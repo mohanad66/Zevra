@@ -162,14 +162,14 @@ export default function Invest() {
       </div>
 
       {phase === 'form' ? (
-        <form className="card form" onSubmit={createOrder}>
+        <form className="card form deposit-form" onSubmit={createOrder}>
           <div className="coin-picker">
             {coins.filter((c) => String(c.symbol).toUpperCase() === 'USDT').map((c) => (
               <button
                 type="button"
                 key={c.id}
                 className={`coin-opt ${c.id === coinId ? 'active' : ''}`}
-                onClick={() => setCoinId(c.id)}
+                onClick={() => { setCoinId(c.id); setAmount('') }}
               >
                 {c.icon_url ? <img src={c.icon_url} alt="" /> : <span className="coin-fallback">{c.symbol[0]}</span>}
                 <span><b>{c.name}</b><small>{c.symbol}</small></span>
@@ -177,30 +177,37 @@ export default function Invest() {
             ))}
           </div>
 
-          <div className="invest-summary">
-            <span><i>{t('invest.selectedCoin')}</i><b>{coin.name} ({coin.symbol})</b></span>
-            <span><i>{t('invest.price')}</i><b>${fmt(coin.current_price, 8)}</b></span>
-            <span><i>{t('invest.min')}</i><b>{fmt(coin.min_invest)} {coin.symbol}</b></span>
-            <span><i>{t('invest.network')}</i><b>{network}</b></span>
+          <div className="deposit-amount-card">
+            <span className="deposit-amount-label">{t('invest.toInvest')}</span>
+            <div className="deposit-amount-field">
+              <span className="deposit-amount-icon">
+                {coin.icon_url ? <img src={coin.icon_url} alt="" /> : coin.symbol[0]}
+              </span>
+              <input
+                className="deposit-amount-input"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                placeholder="0.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                required
+                aria-label={t('invest.toInvest')}
+              />
+              <span className="deposit-amount-sym">{coin.symbol}</span>
+            </div>
+            <div className="quick-amounts">
+              {[70, 100, 250, 500].map((q) => (
+                <button type="button" className={`chip ${amount === String(q) ? 'chip-active' : ''}`} key={q} onClick={() => setAmount(String(q))}>
+                  {q} {coin.symbol}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <label>
-            {t('invest.toInvest')}
-            <input
-              type="number"
-              min={parseFloat(coin.min_invest) || 0}
-              step="any"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-            />
-          </label>
-          <div className="quick-amounts">
-            {[70, 100, 250, 500].map((q) => (
-              <button type="button" className="chip" key={q} onClick={() => setAmount(String(q))}>
-                {q} {coin.symbol}
-              </button>
-            ))}
+          <div className="invest-summary two">
+            <span><i>{t('invest.selectedCoin')}</i><b>{coin.name} ({coin.symbol})</b></span>
+            <span><i>{t('invest.network')}</i><b>{network}</b></span>
           </div>
 
           <div className="saved-accounts" role="radiogroup" aria-label={t('networkGroupLabel')}>

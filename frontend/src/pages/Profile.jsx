@@ -82,7 +82,6 @@ export default function Profile() {
   const [compressing, setCompressing] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [verificationUiEnabled, setVerificationUiEnabled] = useState(true)
   const ar = lang === 'ar'
 
   async function pickImage(file, apply) {
@@ -120,21 +119,11 @@ export default function Profile() {
   useEffect(() => { load().catch(() => {}).finally(() => setLoading(false)) }, [])
 
   useEffect(() => {
-    client
-      .get('/settings/')
-      .then((res) => {
-        if (res.data && typeof res.data.verification_ui_enabled === 'boolean') {
-          setVerificationUiEnabled(res.data.verification_ui_enabled)
-        }
-      })
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    if (location.state?.kyc && kycRef.current) {
+    const wantsKyc = location.state?.kyc || location.hash === '#kyc'
+    if (wantsKyc && kycRef.current) {
       kycRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
-  }, [location.state, kyc.status])
+  }, [location.state, location.hash, kyc.status, loading])
 
   useEffect(() => {
     if (user) {
@@ -325,7 +314,7 @@ export default function Profile() {
         </form>
       </div>
 
-      <div className="card form" ref={kycRef}>
+      <div className="card form" id="kyc" ref={kycRef}>
         <h3><ShieldCheck size={18} /> {t('pf.kyc.title')}</h3>
         <div className="kyc-status">
           <span className={`pill pill-${kycBadge}`}>
