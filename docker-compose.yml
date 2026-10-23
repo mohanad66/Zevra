@@ -1,137 +1,89 @@
-# ---------------------------------------------------------------------------
-# Miyar Trading — full deployment compass
-#
-#   db      PostgreSQL 16            (app data)
-#   redis   Redis 7                  (cache / throttling re-entrancy)
-#   api     Django REST (gunicorn)   built from ./backend
-#   main    Vite build + nginx       built from ./frontend, serves the app,
-#                                    proxies /api -> api, /static+/media
-#
-# Optional gateway overrides live in separate compose files; deploy together.
-# Payments/payouts run through Plisio (hosted) — no extra container is needed.
-#
-#   cp .env.docker.example .env      # then fill in real values
-#   docker compose up -d --build
-#
-# TLS: the host nginx (with certbot certs) terminates HTTPS and routes:
-#   miyartrading.com / www  -> 127.0.0.1:8080 (main)
-#   api.miyartrading.com    -> 127.0.0.1:8000 (api)
-# Drop-in vhost config: deploy/nginx/miyartrading.conf
-# ---------------------------------------------------------------------------
-
-name: miyartrading
+﻿version: '3.9'
 
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-miyartrading}
-      POSTGRES_USER: ${DB_USER:-miyartrading}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
-    # Tuned for a small host that must serve many concurrent API workers.
-    # shared_buffers/effective_cache_size assume a ~4 GB box; scale them with RAM.
-    # max_connections is sized well above workers * threads so no request waits
-    # on a connection slot.
-    command:
-      - postgres
-      - -c
-      - max_connections=${DB_MAX_CONNECTIONS:-200}
-      - -c
-      - shared_buffers=${DB_SHARED_BUFFERS:-384MB}
-      - -c
-      - effective_cache_size=${DB_EFFECTIVE_CACHE_SIZE:-1024MB}
-      - -c
-      - work_mem=${DB_WORK_MEM:-8MB}
-      - -c
-      - maintenance_work_mem=${DB_MAINTENANCE_WORK_MEM:-128MB}
-      - -c
-      - random_page_cost=${DB_RANDOM_PAGE_COST:-1.1}
-      - -c
-      - checkpoint_completion_target=0.9
-      - -c
-      - wal_compression=on
+      POSTGRES_DB: 
+      POSTGRES_USER: 
+      POSTGRES_PASSWORD: 
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-miyartrading} -d ${DB_NAME:-miyartrading}"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U  -d "]
+      interval: 10s
       timeout: 5s
-      retries: 12
+      retries: 10
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\""]
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    command: ["redis-server", "--requirepass", "", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
-      interval: 5s
+      test: ["CMD", "redis-cli", "-a", "", "ping"]
+      interval: 10s
       timeout: 5s
-      retries: 12
+      retries: 10
 
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: miyartrading-api
     restart: unless-stopped
-    env_file: .env
-    # Exposed on the host loopback only, so the host nginx can proxy
-    # api.miyartrading.com -> 127.0.0.1:8000. Never bind this to 0.0.0.0.
-    ports:
-      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
+    env_file:
+      - .env
     environment:
       DJANGO_ENV: production
-      DJANGO_DEBUG: "0"
-      DB_ENGINE: postgres
+      DJANGO_DEBUG: '0'
+      DB_ENGINE: django.db.backends.postgresql
       DB_HOST: db
-      DB_PORT: "5432"
-      DB_NAME: ${DB_NAME:-miyartrading}
-      DB_USER: ${DB_USER:-miyartrading}
-      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0
-      # Gunicorn (gthread) sizing. Bump workers/threads with more vCPU/RAM.
-      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
-      GUNICORN_THREADS: ${GUNICORN_THREADS:-8}
-      # Reuse DB connections across requests instead of reconnecting each time.
-      DB_CONN_MAX_AGE: ${DB_CONN_MAX_AGE:-600}
-      # same-origin deployment: browser talks to `main` -> nginx -> api, so an
-      # empty CORS list is fine; set CORS_ALLOWED_ORIGINS if you host the API
-      # on its own domain.
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?DJANGO_ALLOWED_HOSTS must be set (comma separated hostnames)}
-    volumes:
-      - staticfiles:/app/staticfiles
-      - mediafiles:/app/media
+      DB_PORT: 5432
+      REDIS_URL: redis://:@redis:6379/0
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - staticfiles:/app/staticfiles
+      - mediafiles:/app/media
+    ports:
+      - "127.0.0.1:8000:8000"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/settings/ >/dev/null || exit 1"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/health/"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 20s
+      start_period: 60s
 
   main:
     build:
       context: ./frontend
-      args:
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
+      dockerfile: Dockerfile
+    image: miyartrading-main
     restart: unless-stopped
-    # Bound to the host loopback only: the host nginx terminates TLS on 80/443
-    # and proxies miyartrading.com -> 127.0.0.1:8080. Do not publish 0.0.0.0:80
-    # here or it will fight the host nginx.
-    ports:
-      - "127.0.0.1:${HTTP_PORT:-8080}:80"
-    volumes:
-      - staticfiles:/usr/share/nginx/html/static
-      - mediafiles:/usr/share/nginx/html/media
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    volumes:
+      - staticfiles:/usr/share/nginx/html/static:ro
+      - mediafiles:/usr/share/nginx/html/media:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
 volumes:
   pgdata:
+  redisdata:
   staticfiles:
   mediafiles:
