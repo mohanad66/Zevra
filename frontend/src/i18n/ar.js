@@ -292,6 +292,7 @@ export const ar = {
   'rf.colPct': '%',
   'rf.colFrom': 'من',
   'rf.colDate': 'التاريخ',
+  'rf.copyLink':"نسخ الرابط",
 
   // profile / kyc
   'pf.title': 'الملف الشخصي',

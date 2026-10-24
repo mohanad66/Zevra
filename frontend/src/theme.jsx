@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { getCookie, setCookie } from './utils/storage'
 
 const STORAGE_KEY = 'myxtrading_theme'
-export const DEFAULT_THEME = 'light'
+export const DEFAULT_THEME = 'dark'
 
 export function getStoredTheme() {
   try {

@@ -10,29 +10,37 @@ import Loading from '../components/Loading'
 export default function Referrals() {
   const [data, setData] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
   const { apiError } = useAuth()
   const { toast } = useToast()
   const { t } = useI18n()
-  const inviteLink = `${import.meta.env.VITE_APP_URL || window.location.origin}/register?invite=${data.invite_code}`
+
+  const inviteLink = data?.invite_code
+    ? `${import.meta.env.VITE_APP_URL || window.location.origin}/register?invite=${data.invite_code}`
+    : ''
   useEffect(() => {
     client.get('/referrals/').then((res) => setData(res.data)).catch((err) => toast(apiError(err), 'error'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (!data) return <Loading />
-  const copyLink = () => {
-    navigator.clipboard?.writeText(inviteLink).then(() => {
-      setCopiedLink(true)
-      setTimeout(() => setCopiedLink(false), 1500)
-    })
-  }
+
+
+
+
   const copy = () => {
     navigator.clipboard?.writeText(data.invite_code).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
   }
-
+  const copyLink = () => {
+    if (!inviteLink) return
+    navigator.clipboard?.writeText(inviteLink).then(() => {
+      setCopiedLink(true)
+      setTimeout(() => setCopiedLink(false), 1500)
+    })
+  }
   const levels = [
     { level: 1, label: t('rf.level1'), earned: data.level1_earned, count: data.level1_count, desc: t('rf.desc1') },
     { level: 2, label: t('rf.level2'), earned: data.level2_earned, count: data.level2_count, desc: t('rf.desc2') },

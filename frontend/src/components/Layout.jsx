@@ -208,7 +208,7 @@ export default function Layout() {
         ))}
         <button
           type="button"
-          className={moreOpen ? 'bn-link active' : 'bn-link'}
+          className={moreOpen ? 'bn-link  morelink active' : 'bn-link morelink'}
           aria-expanded={moreOpen}
           onClick={() => setMoreOpen((v) => !v)}
         >

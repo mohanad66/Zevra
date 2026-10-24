@@ -107,7 +107,7 @@ export const en = {
 
   // dashboard
   'dash.title': 'Dashboard',
-  'dash.payoutTitle' : 'Payout window',
+  'dash.payoutTitle': 'Payout window',
   'dash.subtitle': 'Your portfolio at a glance.',
   'dash.portfolioValue': 'Portfolio value',
   'dash.totalWithdrawable': 'Total withdrawable',
@@ -214,12 +214,12 @@ export const en = {
   'invest.checkingBody': 'We are watching the network for your deposit. Keep this page open — as soon as the payment gateway confirms your payment, your investment will be confirmed automatically.',
   'invest.paymentExpired': 'This payment is no longer valid. Please start a new order.',
   'invest.newOrder': 'Start a new order',
-'invest.network': 'Network',
-'invest.payOnNetwork': 'Pay on network',
-'networkGroupLabel': 'Payment network',
-'networkSoon': 'coming soon',
-'networkSoonShort': 'soon',
-'invest.qrAlt': 'QR code for the deposit address',
+  'invest.network': 'Network',
+  'invest.payOnNetwork': 'Pay on network',
+  'networkGroupLabel': 'Payment network',
+  'networkSoon': 'coming soon',
+  'networkSoonShort': 'soon',
+  'invest.qrAlt': 'QR code for the deposit address',
 
   // withdraw
   'wd.title': 'Withdraw',
@@ -293,6 +293,8 @@ export const en = {
   'rf.colPct': '%',
   'rf.colFrom': 'From',
   'rf.colDate': 'Date',
+  'rf.copyLink': "Copy Link",
+
 
   // profile / kyc
   'pf.title': 'Profile',
@@ -323,9 +325,9 @@ export const en = {
   'pf.kyc.firstName': 'First name (as on ID)',
   'pf.kyc.lastName': 'Last name (as on ID)',
   'pf.kyc.docType': 'Document type',
-'pf.kyc.docTypeIdCard': 'ID card',
-'pf.kyc.docTypePassport': 'Passport',
-'pf.kyc.docTypeDriverLicense': 'Driver license',
+  'pf.kyc.docTypeIdCard': 'ID card',
+  'pf.kyc.docTypePassport': 'Passport',
+  'pf.kyc.docTypeDriverLicense': 'Driver license',
   'pf.kyc.docFront': 'Document front',
   'pf.kyc.docBack': 'Document back (optional)',
   'pf.kyc.selfie': 'Selfie',
