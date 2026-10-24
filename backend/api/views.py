@@ -96,27 +96,35 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
 
         # Kick off account activation straight away (best effort).
-        # verification_required = bool(user.email) and not user.email_verified
-        # verify_detail = ""
-        # if verification_required:
-        #     ok, payload = _send_verification_code(
-        #         user, OneTimeCode.CHANNEL_EMAIL, OneTimeCode.PURPOSE_REGISTER
-        #     )
-        #     if isinstance(payload, dict):
-        #         verify_detail = payload.get("detail", "")
-        #     elif not ok:
-        #         verify_detail = tr(
-        #             "We could not send the activation email yet — you can resend it from your profile.",
-        #             request,
-        #         )
+        verification_required = False
+        verify_detail = ""
+        settings_map = PlatformSettings.public_map()
+        if user.email and settings_map.get("email_verification_required"):
+            verification_required = True
+            ok, payload = _send_verification_code(
+                user, OneTimeCode.CHANNEL_EMAIL, OneTimeCode.PURPOSE_REGISTER
+            )
+            if isinstance(payload, dict):
+                verify_detail = payload.get("detail", "")
+            elif not ok and isinstance(payload, str):
+                verify_detail = payload
+        elif user.phone and settings_map.get("phone_verification_required"):
+            verification_required = True
+            ok, payload = _send_verification_code(
+                user, OneTimeCode.CHANNEL_SMS, OneTimeCode.PURPOSE_REGISTER
+            )
+            if isinstance(payload, dict):
+                verify_detail = payload.get("detail", "")
+            elif not ok and isinstance(payload, str):
+                verify_detail = payload
 
         data = UserSerializer(user, context={"request": request}).data
         return response.Response(
             {
                 "user": data,
-                "message": tr("Account created. You can now log in.", request),
-                "verification_required": False,
-                "verification_detail": "",
+                "message": tr("Account created. Check your email/phone for a verification code.", request),
+                "verification_required": verification_required,
+                "verification_detail": verify_detail,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -147,6 +155,20 @@ class LoginView(views.APIView):
         if user.banned_until and user.banned_until > timezone.now():
             return response.Response(
                 {"detail": tr("Your account is temporarily suspended. Try again later.", request)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # If a code was just sent at registration, enforce verification gates
+        settings_map = PlatformSettings.public_map()
+        email_req = bool(settings_map.get("email_verification_required"))
+        sms_req = bool(settings_map.get("phone_verification_required"))
+        if email_req and user.email and not user.email_verified:
+            return response.Response(
+                {"detail": tr("Please verify your email to continue.", request), "verification_required": True},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if sms_req and user.phone and not user.phone_verified:
+            return response.Response(
+                {"detail": tr("Please verify your phone number to continue.", request), "verification_required": True},
                 status=status.HTTP_403_FORBIDDEN,
             )
         user.last_login = timezone.now()

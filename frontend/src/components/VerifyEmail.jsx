@@ -34,8 +34,6 @@ export default function VerifyEmail({ channel = 'email', purpose = 'register', o
         .catch((err) => {
           const msg = apiError(err)
           setError(msg)
-          // A cooldown 400 still means a code is in flight, so adopt its timer
-          // and destination rather than leaving the Send button clickable.
           const data = err?.response?.data
           if (data?.retry_after > 0) {
             if (data.masked) setMasked(data.masked)
@@ -56,21 +54,8 @@ export default function VerifyEmail({ channel = 'email', purpose = 'register', o
     return () => clearInterval(id)
   }, [cooldown])
 
-  // `register` sends a code before this component ever mounts, so ask the
-  // server whether one is already in flight. Without this the UI rendered a
-  // Send button that could only bounce off the 60s resend cooldown.
   useEffect(() => {
-    client
-      .get('/auth/verify/status/', { params: { channel, purpose } })
-      .then((res) => {
-        const pending = res.data?.pending
-        if (pending?.retry_after > 0) {
-          setMasked(pending.masked || '')
-          setSent(true)
-          setCooldown(pending.retry_after)
-        }
-      })
-      .catch(() => {})
+    send(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
