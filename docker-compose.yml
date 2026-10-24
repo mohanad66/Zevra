@@ -74,6 +74,7 @@
     volumes:
       - staticfiles:/usr/share/nginx/html/static:ro
       - mediafiles:/usr/share/nginx/html/media:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     ports:
       - "80:80"
       - "443:443"
