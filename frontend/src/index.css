@@ -37,13 +37,13 @@
 html[data-theme='light'] {
   color-scheme: light;
   --bg-img:url("/whiteBG.jpeg");
-  --bg-filter: brightness(1.08) saturate(1.1) blur(1px);
+  --bg-filter: brightness(1.12) saturate(1.18) contrast(1.02) blur(0.5px);
   --bg-glow:
-    radial-gradient(55% 45% at 12% 8%, rgba(184, 134, 42, 0.3), transparent 68%),
-    radial-gradient(50% 40% at 88% 18%, rgba(227, 180, 65, 0.28), transparent 70%),
-    radial-gradient(45% 45% at 50% 100%, rgba(154, 111, 20, 0.18), transparent 72%);
-  --bg-glow-blend: soft-light;
-  --bg-overlay: linear-gradient(180deg, rgba(250, 247, 241, 0.5) 0%, rgba(250, 247, 241, 0.68) 50%, rgba(250, 247, 241, 0.86) 100%);
+    radial-gradient(60% 50% at 16% 10%, rgba(184, 134, 42, 0.34), transparent 72%),
+    radial-gradient(55% 48% at 84% 16%, rgba(227, 180, 65, 0.32), transparent 74%),
+    radial-gradient(50% 48% at 50% 100%, rgba(154, 111, 20, 0.22), transparent 76%);
+  --bg-glow-blend: multiply;
+  --bg-overlay: linear-gradient(180deg, rgba(250, 247, 241, 0.36) 0%, rgba(250, 247, 241, 0.56) 48%, rgba(250, 247, 241, 0.78) 100%);
   --bg: #faf7f1;
   --bg2: #f0e9dc;
   --panel: #ffffff;
