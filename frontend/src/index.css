@@ -1,6 +1,9 @@
 /* Brand palette taken from the MYX logo: black + Miyar gold (#E3B441). */
 :root {
   color-scheme: dark;
+  --bg-img:url("/darkBG.jpeg");
+  --bg-filter: brightness(0.5) saturate(1.15) contrast(1.05) blur(2px);
+  --bg-overlay: linear-gradient(180deg, rgba(6, 5, 4, 0.55) 0%, rgba(6, 5, 4, 0.82) 100%);
   --bg: #060504;
   --bg2: #0e0c08;
   --panel: #16120c;
@@ -28,6 +31,9 @@
 
 html[data-theme='light'] {
   color-scheme: light;
+  --bg-img:url("/whiteBG.jpeg");
+  --bg-filter: brightness(1.02) saturate(0.95) blur(2px);
+  --bg-overlay: linear-gradient(180deg, rgba(250, 247, 241, 0.78) 0%, rgba(250, 247, 241, 0.9) 100%);
   --bg: #faf7f1;
   --bg2: #f0e9dc;
   --panel: #ffffff;
@@ -65,7 +71,37 @@ html, body {
   line-height: 1.5;
 }
 
-body { transition: background 0.2s ease, color 0.2s ease; }
+body {
+  background: transparent;
+  transition: color 0.2s ease;
+}
+
+/* ---------- themed background image ---------- */
+#root { position: relative; min-height: 100vh; isolation: isolate; }
+
+.bg-layer {
+  position: fixed;
+  inset: -6vmax;
+  z-index: -1;
+  background-image: var(--bg-img);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: var(--bg-filter);
+  pointer-events: none;
+  transition: filter 0.25s ease, opacity 0.25s ease;
+}
+
+.bg-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--bg-overlay);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-layer { transition: none; }
+}
 
 a { color: var(--brand); text-decoration: none; }
 a:hover { text-decoration: none; opacity: 0.9; }
