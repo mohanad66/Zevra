@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => ({
       : [
           VitePWA({
             registerType: 'autoUpdate',
-            includeAssets: ['favicon.svg', 'icons.svg'],
+            includeAssets: ['favicon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'logo.png'],
             manifest: {
               name: 'MYX app — Invest & Trade Stablecoins',
               short_name: 'MYX app',
@@ -24,8 +24,8 @@ export default defineConfig(({ mode }) => ({
               lang: 'en',
               dir: 'ltr',
               categories: ['finance', 'business', 'productivity'],
-              theme_color: '#0a0f1a',
-              background_color: '#0a0f1a',
+              theme_color: '#060504',
+              background_color: '#060504',
               display: 'standalone',
               orientation: 'portrait',
               start_url: '/',
@@ -43,8 +43,9 @@ export default defineConfig(({ mode }) => ({
               ],
             },
             workbox: {
-              globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+              globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,ico}'],
               navigateFallbackDenylist: [/^\/api/],
+              maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
               runtimeCaching: [
                 {
                   urlPattern: /^https:\/\/api\.coingecko\.com\/.*/i,
@@ -60,6 +61,22 @@ export default defineConfig(({ mode }) => ({
           }),
         ]),
   ],
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('recharts')) return 'vendor-charts'
+            if (id.includes('lucide-react')) return 'vendor-icons'
+            if (id.includes('@capacitor')) return 'vendor-capacitor'
+            if (id.includes('react')) return 'vendor-react'
+            return 'vendor'
+          }
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

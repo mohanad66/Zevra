@@ -1,7 +1,7 @@
 /* Brand palette taken from the MYX logo: black + Miyar gold (#E3B441). */
 :root {
   color-scheme: dark;
-  --bg-img:url("/darkBG.jpeg");
+  --bg-img:url("/darkBG-sm.jpeg");
   --bg-filter: brightness(0.92) saturate(1.35) contrast(1.05) blur(1px);
   --bg-glow:
     radial-gradient(55% 45% at 12% 8%, rgba(227, 180, 65, 0.42), transparent 68%),
@@ -36,7 +36,7 @@
 
 html[data-theme='light'] {
   color-scheme: light;
-  --bg-img:url("/whiteBG.jpeg");
+  --bg-img:url("/whiteBG-sm.jpeg");
   --bg-filter: brightness(1.12) saturate(1.18) contrast(1.02) blur(0.5px);
   --bg-glow:
     radial-gradient(60% 50% at 16% 10%, rgba(184, 134, 42, 0.34), transparent 72%),
