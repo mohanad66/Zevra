@@ -90,6 +90,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "api.middleware.TrustedProxyRealIPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     # Must sit before CommonMiddleware: api.middleware.LanguageMiddleware turns
@@ -165,6 +166,7 @@ LANGUAGES = (("en", "English"), ("ar", "Arabic"))
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.environ.get("DJANGO_MEDIA_ROOT", BASE_DIR / "media")
 
