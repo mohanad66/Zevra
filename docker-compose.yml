@@ -1,32 +1,34 @@
-﻿version: '3.9'
-
-services:
+﻿services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: 
-      POSTGRES_USER: 
-      POSTGRES_PASSWORD: 
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is not set in .env}
+      POSTGRES_USER: ${DB_USER:?DB_USER is not set in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is not set in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U  -d "]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--requirepass", "", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is not set in .env}
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 10s
 
   api:
     build:
@@ -42,7 +44,7 @@ services:
       DB_ENGINE: django.db.backends.postgresql
       DB_HOST: db
       DB_PORT: 5432
-      REDIS_URL: redis://:@redis:6379/0
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is not set in .env}@redis:6379/0
     depends_on:
       db:
         condition: service_healthy
