@@ -41,7 +41,7 @@
     environment:
       DJANGO_ENV: production
       DJANGO_DEBUG: '0'
-      DB_ENGINE: django.db.backends.postgresql
+      DB_ENGINE: postgresql
       DB_HOST: db
       DB_PORT: 5432
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is not set in .env}@redis:6379/0
