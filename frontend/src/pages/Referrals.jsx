@@ -13,14 +13,19 @@ export default function Referrals() {
   const { apiError } = useAuth()
   const { toast } = useToast()
   const { t } = useI18n()
-
+  const inviteLink = `${import.meta.env.VITE_APP_URL || window.location.origin}/register?invite=${data.invite_code}`
   useEffect(() => {
     client.get('/referrals/').then((res) => setData(res.data)).catch((err) => toast(apiError(err), 'error'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (!data) return <Loading />
-
+  const copyLink = () => {
+    navigator.clipboard?.writeText(inviteLink).then(() => {
+      setCopiedLink(true)
+      setTimeout(() => setCopiedLink(false), 1500)
+    })
+  }
   const copy = () => {
     navigator.clipboard?.writeText(data.invite_code).then(() => {
       setCopied(true)
@@ -51,9 +56,13 @@ export default function Referrals() {
         <button className="btn primary" onClick={copy}>
           {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? t('common.copied') : t('common.copy')}
         </button>
+
         <p className="small muted">
-          {t('rf.inviteFriends')} <b>{import.meta.env.VITE_APP_URL || window.location.origin}/register?invite={data.invite_code}</b>
+          {t('rf.inviteFriends')} <b>{inviteLink}</b>
         </p>
+        <button className="btn" onClick={copyLink}>
+          {copiedLink ? <Check size={16} /> : <Copy size={16} />} {copiedLink ? t('common.copied') : t('rf.copyLink')}
+        </button>
       </div>
 
       <div className="totals-grid three">
