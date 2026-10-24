@@ -1,29 +1,29 @@
-import { useEffect } from 'react'
+﻿import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
-const SITE = 'MYX app'
+const SITE = 'MYX Trading'
 const DEFAULT_DESC =
-  'MYX app is a secure platform to invest in stablecoins, track live crypto market prices, and earn three-level referral rewards — on web, Android and iOS.'
+  'MYX Trading is a secure platform to invest in stablecoins, track live crypto market prices, and earn three-level referral rewards â€” on web, Android and iOS.'
 
 const ROUTES = {
-  '/': { title: `${SITE} — Invest & Trade Stablecoins`, desc: DEFAULT_DESC, private: false },
-  '/login': { title: `Log in — ${SITE}`, desc: `Log in to your ${SITE} account.`, private: false },
+  '/': { title: `${SITE} â€” Invest & Trade Stablecoins`, desc: DEFAULT_DESC, private: false },
+  '/login': { title: `Log in â€” ${SITE}`, desc: `Log in to your ${SITE} account.`, private: false },
   '/register': {
-    title: `Create an account — ${SITE}`,
+    title: `Create an account â€” ${SITE}`,
     desc: `Create a ${SITE} account to invest in stablecoins and earn referral rewards.`,
     private: false,
   },
-  '/terms': { title: `Terms of Service — ${SITE}`, desc: `${SITE} Terms of Service.`, private: false },
-  '/privacy': { title: `Privacy Policy — ${SITE}`, desc: `${SITE} Privacy Policy.`, private: false },
+  '/terms': { title: `Terms of Service â€” ${SITE}`, desc: `${SITE} Terms of Service.`, private: false },
+  '/privacy': { title: `Privacy Policy â€” ${SITE}`, desc: `${SITE} Privacy Policy.`, private: false },
   '/kyc-policy': {
-    title: `KYC & AML Policy — ${SITE}`,
+    title: `KYC & AML Policy â€” ${SITE}`,
     desc: `${SITE} identity verification (KYC) and anti-money-laundering policy.`,
     private: false,
   },
 }
 
 const DEFAULT_META = {
-  title: `${SITE} — Invest & Trade Stablecoins`,
+  title: `${SITE} â€” Invest & Trade Stablecoins`,
   desc: DEFAULT_DESC,
   private: true,
 }
@@ -70,3 +70,4 @@ export default function Seo() {
 
   return null
 }
+
