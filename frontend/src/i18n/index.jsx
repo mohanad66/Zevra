@@ -4,7 +4,7 @@ import { ar } from './ar'
 import { client } from '../api/client'
 import { getCookie, setCookie } from '../utils/storage'
 
-const STORAGE_KEY = 'miyartrading_lang'
+const STORAGE_KEY = 'myxtrading_lang'
 export const DEFAULT_LANG = 'en'
 
 export function getStoredLang() {
@@ -39,6 +39,17 @@ export function I18nProvider({ children }) {
   useEffect(() => {
     let mounted = true
     async function resolve() {
+      try {
+        const url = new URL(window.location.href)
+        const ql = (url.searchParams.get('lang') || '').toLowerCase()
+        if (ql === 'ar' || ql === 'en') {
+          storeLang(ql)
+          setLang(ql)
+          return
+        }
+      } catch {
+        /* ignore */
+      }
       if (hasStoredLang()) {
         setLang(getStoredLang())
         return
@@ -50,7 +61,10 @@ export function I18nProvider({ children }) {
       } catch {
         /* keep DEFAULT_LANG when the settings can't be fetched */
       }
-      if (mounted) setLang(platform)
+      if (mounted) {
+        storeLang(platform)
+        setLang(platform)
+      }
     }
     resolve()
     return () => {
@@ -84,6 +98,13 @@ export function I18nProvider({ children }) {
   const changeLang = (next) => {
     setLang(next)
     storeLang(next)
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.set('lang', next)
+      window.history.replaceState({}, '', url.toString())
+    } catch {
+      /* ignore */
+    }
     window.location.reload()
   }
 

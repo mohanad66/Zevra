@@ -5,9 +5,10 @@ import { useI18n } from '../i18n'
 import { X, Compass, ArrowRight, Check } from 'lucide-react'
 
 const DISMISS_KEY = 'guide_dismissed_v1'
+const OPEN_ONCE_KEY = 'guide_opened_en_once'
 
 export default function GuidePopup() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [steps, setSteps] = useState([])
   const [open, setOpen] = useState(false)
   const [dismissed, setDismissed] = useState(true)
@@ -20,10 +21,24 @@ export default function GuidePopup() {
         const list = res.data?.steps ?? []
         setSteps(list)
         const pending = list.some((s) => !s.done)
-        if (pending && localStorage.getItem(DISMISS_KEY) !== '1') setOpen(true)
+        const alreadyOpened = localStorage.getItem(OPEN_ONCE_KEY) === '1'
+        if (pending && localStorage.getItem(DISMISS_KEY) !== '1') {
+          if (lang === 'en' && !alreadyOpened) {
+            setOpen(true)
+            try {
+              localStorage.setItem(OPEN_ONCE_KEY, '1')
+            } catch {
+              /* ignore */
+            }
+            return
+          }
+          if (lang !== 'en') {
+            setOpen(true)
+          }
+        }
       })
       .catch(() => {})
-  }, [])
+  }, [lang])
 
   const next = steps.find((s) => !s.done)
 

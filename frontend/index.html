@@ -29,7 +29,7 @@
         return match ? decodeURIComponent(match[1]) : null
       }
       try {
-        var t = readCookie('miyartrading_theme')
+        var t = readCookie('myxtrading_theme')
         if (t !== 'light' && t !== 'dark') t = 'dark'
         document.documentElement.dataset.theme = t
         var m = document.querySelector('meta[name="theme-color"]')

@@ -9,8 +9,8 @@ export const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-const TOKEN_KEY = 'miyartrading_access'
-const REFRESH_KEY = 'miyartrading_refresh'
+const TOKEN_KEY = 'myxtrading_access'
+const REFRESH_KEY = 'myxtrading_refresh'
 
 export const tokenStore = {
   get access() {

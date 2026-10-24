@@ -4,7 +4,7 @@ import { Check, CircleDot, ChevronRight, LoaderCircle, RefreshCw, ListChecks } f
 import { client } from '../api/client'
 import { useI18n } from '../i18n'
 
-const DISMISS_KEY = 'miyartrading_onboarding_dismissed'
+const DISMISS_KEY = 'myxtrading_onboarding_dismissed'
 
 export default function OnboardingChecklist({ autoRefreshMs = 45000 }) {
   const { t } = useI18n()
