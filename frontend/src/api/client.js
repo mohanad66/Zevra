@@ -2,7 +2,7 @@ import axios from 'axios'
 import { getStoredLang } from '../i18n'
 import { getCookie, setCookie, removeCookie } from '../utils/storage'
 
-const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/+$/, '')
+const API_BASE = "https://api.myxtrading.org/api"
 
 export const client = axios.create({
   baseURL: API_BASE,

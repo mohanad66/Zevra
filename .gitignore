@@ -27,4 +27,4 @@ frontend/android/*.keystore
 
 # os
 .DS_Store
-Thumbs.db
+Thumbs.dbcerts/
