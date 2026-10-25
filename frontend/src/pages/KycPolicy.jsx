@@ -9,7 +9,7 @@ export default function KycPolicy() {
   }))
 
   return (
-    <LegalShell title={t('legal.kyc.title')} updated="September 11, 2026">
+    <LegalShell title={t('legal.kyc.title')} updated="October 25, 2026">
       {sections.map((x) => (
         <div key={x.head}>
           <h2>{x.head}</h2>

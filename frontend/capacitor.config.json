@@ -1,15 +1,15 @@
 {
-  "appId": "com.miyartrading.app",
-  "appName": "Miyar Trading",
+  "appId": "com.myxtrading.app",
+  "appName": "MYX Trading App",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"
   },
   "android": {
-    "backgroundColor": "#0b0f1a"
+    "backgroundColor": "#060504"
   },
   "ios": {
-    "backgroundColor": "#0b0f1a",
+    "backgroundColor": "#060504",
     "contentInset": "always"
   }
 }

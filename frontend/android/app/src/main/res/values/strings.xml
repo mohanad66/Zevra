@@ -1,7 +1,9 @@
-<?xml version='1.0' encoding='utf-8'?>
+﻿<?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Miyar Trading</string>
-    <string name="title_activity_main">Miyar Trading</string>
-    <string name="package_name">com.miyartrading.app</string>
-    <string name="custom_url_scheme">com.miyartrading.app</string>
+    <string name="app_name">MYX Trading App</string>
+    <string name="title_activity_main">MYX Trading App</string>
+    <string name="package_name">com.myxtrading.app</string>
+    <string name="custom_url_scheme">com.myxtrading.app</string>
 </resources>
+
+
