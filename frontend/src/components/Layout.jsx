@@ -243,10 +243,10 @@ export default function Layout() {
 
       <footer className="footer">
         <div className="footer-social">
-          <a className="footer-cta" href="https://t.me/miyar_0" target="_blank" rel="noopener noreferrer">
+          <a className="footer-cta" href="https://t.me/MYX_APP2" target="_blank" rel="noopener noreferrer">
             <LifeBuoy size={16} /> {t('nav.support')}
           </a>
-          <a className="footer-cta" href="https://t.me/+RuwZtt7e2AsxMTAx" target="_blank" rel="noopener noreferrer">
+          <a className="footer-cta" href="https://t.me/MYX_APP1" target="_blank" rel="noopener noreferrer">
             <Users size={16} /> {t('nav.community')}
           </a>
         </div>
