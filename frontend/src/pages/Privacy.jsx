@@ -17,7 +17,7 @@ export default function Privacy() {
   }))
 
   return (
-    <LegalShell title={t('legal.privacy.title')} updated="October 25, 2026">
+    <LegalShell title={t('legal.privacy.title')} updated="November 3, 2026">
       <div>
         <h2>{t('legal.privacy.1')}</h2>
         <p>{t('legal.privacy.1b')}</p>

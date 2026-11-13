@@ -9,7 +9,7 @@ export default function Terms() {
   }))
 
   return (
-    <LegalShell title={t('legal.terms.title')} updated="October 25, 2026">
+    <LegalShell title={t('legal.terms.title')} updated="November 3, 2026">
       {sections.map((x) => (
         <div key={x.head}>
           <h2>{x.head}</h2>

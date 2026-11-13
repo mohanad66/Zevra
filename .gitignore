@@ -4,6 +4,7 @@ frontend/dist/
 
 # django
 
+env/
 backend/staticfiles/
 backend/media/
 backend/.server.pid
@@ -27,4 +28,5 @@ frontend/android/*.keystore
 
 # os
 .DS_Store
-Thumbs.dbcerts/
+Thumbs.db
+certs/

@@ -1,4 +1,4 @@
-package com.myxtrading.app;
+package com.myxtrading.trading;
 
 import com.getcapacitor.BridgeActivity;
 

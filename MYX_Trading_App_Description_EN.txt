@@ -4,7 +4,7 @@ Short Description (max 80 characters):
 MYX Trading App - Invest in stablecoins & earn referrals
 
 Full Description:
-MYX Trading App is a secure, user-friendly platform designed for smart investing in stablecoins like USDT. Track live crypto market prices, manage your investments, and grow your earnings through our built-in three-level referral program - all in one place.
+MYX Trading App is the official mobile app for the MYX Trading service. It is a secure, user-friendly app designed for smart investing in stablecoins like USDT. Track live crypto market prices, manage your investments, and grow your earnings through our built-in three-level referral program - all directly inside the app.
 
 Key Features:
 - Invest in Stablecoins

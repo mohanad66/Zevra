@@ -1,5 +1,5 @@
 {
-  "appId": "com.myxtrading.app",
+	"appId": "com.myxtrading.trading",
   "appName": "MYX Trading App",
   "webDir": "dist",
   "server": {
