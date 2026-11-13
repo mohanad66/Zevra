@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from datetime import datetime, timedelta, time as dt_time, timezone as dt_timezone
 
@@ -178,3 +178,117 @@ class PayoutWindowScheduleTests(TestCase):
             PayoutWindow.objects.filter(is_active=True).count(), 1
         )
         self.assertTrue(sync_payout_windows(datetime(2026, 5, 1, 11, 5, tzinfo=dt_timezone.utc)) == [])
+
+
+class BlockBeeHelperTests(SimpleTestCase):
+    def test_ticker_uses_slash_form(self):
+        import types
+
+        from api.services import _blockbee_ticker
+
+        coin = types.SimpleNamespace(symbol="USDT", chain="TRC20")
+        self.assertEqual(_blockbee_ticker(coin), "trc20/usdt")
+        self.assertEqual(_blockbee_ticker(coin, "BEP20"), "bep20/usdt")
+        self.assertEqual(_blockbee_ticker(coin, "ERC20"), "erc20/usdt")
+
+    def test_ticker_rejects_unknown_chain_for_token(self):
+        import types
+
+        from api.services import _blockbee_ticker
+
+        coin = types.SimpleNamespace(symbol="USDT", chain="NOPE")
+        with self.assertRaises(ValueError):
+            _blockbee_ticker(coin)
+
+    def test_signature_verification(self):
+        import base64
+        from unittest.mock import patch
+
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+        from api.services import verify_blockbee_signature
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = key.public_key().public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode()
+        body = b"uuid=abc&address_in=T123&value_coin=10&confirmations=3&pending=0"
+        signature = base64.b64encode(
+            key.sign(body, padding.PKCS1v15(), hashes.SHA256())
+        ).decode()
+        with patch("api.services._blockbee_public_key", return_value=pem):
+            self.assertTrue(verify_blockbee_signature(body, signature))
+            self.assertFalse(verify_blockbee_signature(body + b"&x=1", signature))
+            self.assertFalse(verify_blockbee_signature(body, "not-base64"))
+            self.assertFalse(verify_blockbee_signature(body, ""))
+
+
+class BlockBeePaymentTests(TestCase):
+    def setUp(self):
+        from api.models import PlatformSettings
+
+        self.coin = Coin.objects.create(
+            name="Tether",
+            symbol="USDT",
+            chain="TRC20",
+            reference_price=Decimal("1"),
+            is_stable=True,
+            is_active=True,
+        )
+        self.user = User.objects.create_user(
+            email="blockbee@example.com", password="pass12345"
+        )
+        PlatformSettings.objects.update_or_create(
+            key=PlatformSettings.S_PAYMENT_MODE,
+            defaults={"value": "provider"},
+        )
+
+    def test_create_payment_payload_is_persistable(self):
+        import os
+        from unittest.mock import patch
+
+        from api.models import Investment
+        from api.services import create_payment_order
+
+        investment = Investment.objects.create(
+            user=self.user,
+            coin=self.coin,
+            amount=Decimal("10"),
+            source_address="TRC20",
+        )
+        with patch.dict(os.environ, {"BLOCKBEE_API_KEY": "test-key"}), patch(
+            "api.services._blockbee_minimum", return_value=0
+        ), patch(
+            "api.services._blockbee_request",
+            return_value={"status": "success", "address_in": "TTestAddress"},
+        ):
+            payload = create_payment_order(investment)
+
+        self.assertEqual(payload["status"], "pending")
+        self.assertTrue(payload["order_ref"].startswith("ORD-"))
+        self.assertEqual(payload["address"], "TTestAddress")
+        self.assertEqual(payload["provider_order_id"], "TTestAddress")
+        self.assertEqual(payload["provider_token"], "blockbee")
+        self.assertEqual(payload["chain"], "TRC20")
+
+    def test_create_payment_rejects_below_gateway_minimum(self):
+        import os
+        from unittest.mock import patch
+
+        from api.models import Investment
+        from api.services import create_payment_order
+
+        investment = Investment.objects.create(
+            user=self.user,
+            coin=self.coin,
+            amount=Decimal("1"),
+        )
+        with patch.dict(os.environ, {"BLOCKBEE_API_KEY": "test-key"}), patch(
+            "api.services._blockbee_minimum", return_value=10
+        ):
+            payload = create_payment_order(investment)
+
+        self.assertEqual(payload["status"], "failed")
+        self.assertIn("Minimum", payload["message"])

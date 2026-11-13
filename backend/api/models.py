@@ -1074,6 +1074,8 @@ class PlatformSettings(models.Model):
     S_CRYPTOMUS_PAYMENT_KEY = "cryptomus_payment_key"
     S_CRYPTOMUS_PAYOUT_KEY = "cryptomus_payout_key"
     S_PLISIO_API_KEY = "plisio_api_key"
+    S_BLOCKBEE_API_KEY = "blockbee_api_key"
+    S_PAYMENT_GATEWAY = "payment_gateway"
     S_DEFAULT_LANG = "default_lang"
     S_TIMEZONE = "timezone"
 

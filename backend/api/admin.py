@@ -293,7 +293,7 @@ class WithdrawalAdmin(admin.ModelAdmin):
                 failed += 1
         self.message_user(
             request,
-            f"{sent} withdrawal(s) {'dispatched to Plisio' if provider else 'paid out'}"
+            f"{sent} withdrawal(s) {'dispatched to the payment gateway' if provider else 'paid out'}"
             + (f", {failed} failed and refunded." if failed else "."),
         )
 
@@ -367,7 +367,7 @@ class PayoutAdmin(admin.ModelAdmin):
                 po.save(update_fields=["status", "note", "updated_at"])
         self.message_user(
             request,
-            f"{sent} payout(s) {'dispatched to Plisio' if provider else 'sent'}.",
+            f"{sent} payout(s) {'dispatched to the payment gateway' if provider else 'sent'}.",
         )
 
     @admin.action(description="Mark selected payouts as failed")
@@ -464,13 +464,15 @@ DEFAULT_PLATFORM_SETTINGS = [
     (PlatformSettings.S_WITHDRAW_FEE_PERCENT, "1", "Network fee charged on withdrawal, % of amount"),
     (PlatformSettings.S_BONUS_PERCENT, "5", "Profit/seasonal bonus granted by admin, % of invested balance"),
     (PlatformSettings.S_MIN_WITHDRAWAL, "10", "Minimum withdrawal amount"),
-    (PlatformSettings.S_PAYMENT_MODE, "simulate", "simulate | provider (Plisio) | manual"),
+    (PlatformSettings.S_PAYMENT_MODE, "simulate", "simulate | provider (BlockBee/Plisio) | manual"),
+    (PlatformSettings.S_PAYMENT_GATEWAY, "", "blockbee | plisio (blank = auto: BlockBee when its key is set)"),
     (PlatformSettings.S_PAYOUT_MODE, "automatic", "automatic | manual — auto-send payouts on withdrawal"),
     (PlatformSettings.S_PAYMENT_PROVIDER_URL, "", "(legacy) provider API base URL"),
     (PlatformSettings.S_PAYMENT_PROVIDER_KEY, "", "(legacy) provider API key"),
     (PlatformSettings.S_PAYMENT_PROVIDER_SECRET, "", "(legacy) provider API secret"),
     (PlatformSettings.S_PAYMENT_WEBHOOK_TOKEN, "dev-gateway-secret", "Shared secret signed into legacy webhook callbacks (HMAC-SHA256)"),
     (PlatformSettings.S_PLISIO_API_KEY, "", "Plisio SECRET_KEY (API » API settings) — powers deposits and payouts on every chain"),
+    (PlatformSettings.S_BLOCKBEE_API_KEY, "", "BlockBee API key — payouts need API Key V2 + funded wallet"),
 ]
 
 admin.site.register(PriceSnapshot)

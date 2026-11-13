@@ -1,33 +1,32 @@
 """Crypto transfer / payment provider.
 
-The platform moves coins through Plisio, a hosted crypto gateway. There are two
-integration points, switched by the PlatformSetting ``payment_mode``:
+The platform moves coins through a hosted crypto gateway (BlockBee or Plisio),
+selected by the PlatformSetting ``payment_gateway``. There are two integration
+points, switched by the PlatformSetting ``payment_mode``:
 
 * **Investments** (user pays the platform): ``create_payment_order`` creates a
-  Plisio invoice (``GET /api/v1/invoices/new``) the user pays. It is confirmed by
-  the Plisio webhook (``/api/gateway/webhook/?json=true``) and/or polling
+  BlockBee payment address (or a Plisio invoice) the user pays. It is confirmed
+  by the gateway webhook (``/api/gateway/webhook/``) and/or polling
   (``confirm_payment``, ``reconcile_gateway``), and can be finalized manually in
   admin.
 * **Withdrawals / payouts** (platform pays the user): once an admin approves the
-  payout/withdrawal, ``send_platform_to_user`` creates a Plisio withdrawal
-  (``GET /api/v1/operations/withdraw``). ``reconcile_gateway()`` (polling — run
-  via ``python manage.py poll_gateway`` or lazily from the admin orders view)
+  payout/withdrawal, ``send_platform_to_user`` creates a BlockBee payout (or a
+  Plisio withdrawal). ``reconcile_gateway()`` (polling — run via
+  ``python manage.py poll_gateway`` or lazily from the admin orders view)
   finalizes the on-chain result.
 
 Modes:
     simulate – fake deposit address + fake tx hashes (default)
-    provider – Plisio (hosted crypto gateway)
+    provider – hosted crypto gateway (BlockBee or Plisio)
     manual   – a human operator moves coins off-line and enters tx hashes in admin
 
-Plisio configuration:
-    One SECRET_KEY (Plisio dashboard » API » API settings) powers deposits and
-    payouts on every chain the platform offers:
+Configuration:
+    BLOCKBEE_API_KEY - BlockBee API key (payouts need API Key V2 + a funded
+                       Self-Custodial Wallet and the server IP allow-listed)
+    PLISIO_API_KEY   - Plisio SECRET_KEY (legacy alternative)
 
-        PLISIO_API_KEY   - Plisio SECRET_KEY (api_key query parameter)
-
-    Webhooks: Plisio callbacks POST JSON to
-    ``/api/gateway/webhook/?json=true`` with a ``verify_hash`` field
-    (HMAC-SHA1 keyed by the SECRET_KEY over the sorted request values).
+    An explicit ``payment_gateway`` setting (blockbee | plisio) wins; otherwise
+    BlockBee is selected when its API key is configured.
 """
 import base64
 import hashlib
@@ -35,6 +34,7 @@ import hmac
 import json
 import os
 import secrets
+import time
 from decimal import Decimal
 
 import requests
@@ -80,9 +80,12 @@ def _mode():
 
 
 def _provider_ready():
-    """(ok, message) check that Plisio is configured."""
-    key = _plisio_api_key()
-    if not key:
+    """(ok, message) check that the active crypto gateway is configured."""
+    if _active_gateway() == "blockbee":
+        if not _blockbee_api_key():
+            return False, "No BlockBee API key configured (Admin > Payments)."
+        return True, "BlockBee configured."
+    if not _plisio_api_key():
         return False, "No Plisio API key configured (Admin > Payments)."
     return True, "Plisio configured."
 
@@ -147,7 +150,7 @@ def _cryptomus_payout_key():
 def _gateway_webhook_url():
     return _provider_setting(
         PlatformSettings.S_PAYMENT_CALLBACK_URL, "PAYMENT_CALLBACK_URL",
-        "https://api.miyartrading.com/api/gateway/webhook/",
+        "https://api.myxtrading.org/api/gateway/webhook/",
     ).strip()
 
 
@@ -737,14 +740,502 @@ def handle_plisio_webhook(data):
     return False
 
 
-def _payment_gateway(order):
-    """Which provider owns a payment order. Plisio is the only one."""
-    return "plisio"
+# ---------------------------------------------------------------------------
+# BlockBee (deposits + payouts)
+# ---------------------------------------------------------------------------
+#
+#   BLOCKBEE_API_KEY    - BlockBee API key (Dashboard » API Keys)
+#   BLOCKBEE_PUBLIC_KEY - optional override; by default the public key is
+#                         fetched from https://api.blockbee.io/pubkey/
+#
+# Deposits:  GET  /{ticker}/create/?apikey=…&callback=…&post=1&pending=1
+# Payouts:   POST /{ticker}/payout/request/bulk/process/  {"outputs": {addr: amount}}
+# Status:    POST /payout/status/  {"payout_id": …}
+# Webhook:   POST form body + ``x-ca-signature`` (RSA-SHA256, base64)
+#
+# BlockBee ignores (and loses) transfers below the ticker minimum, so the
+# minimum is validated before an address is handed to the user.
+
+_BLOCKBEE_BASE = "https://api.blockbee.io"
+_BLOCKBEE_DOC_PUBKEY = """-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC3FT0Ym8b3myVxhQW7ESuuu6lo
+dGAsUJs4fq+Ey//jm27jQ7HHHDmP1YJO7XE7Jf/0DTEJgcw4EZhJFVwsk6d3+4fy
+Bsn0tKeyGMiaE6cVkX0cy6Y85o8zgc/CwZKc0uw6d5siAo++xl2zl+RGMXCELQVE
+ox7pp208zTvown577wIDAQAB
+-----END PUBLIC KEY-----"""
+
+_BLOCKBEE_PUBKEY_CACHE = {"pem": "", "fetched": 0.0}
+_BLOCKBEE_MINIMUM_CACHE = {}
+
+_BLOCKBEE_TOKENS = {
+    ("USDT", "TRC20"): "trc20/usdt",
+    ("USDT", "ERC20"): "erc20/usdt",
+    ("USDT", "ETH20"): "erc20/usdt",
+    ("USDT", "BEP20"): "bep20/usdt",
+    ("USDT", "POLYGON"): "polygon/usdt",
+    ("USDT", "TON"): "ton/usdt",
+    ("USDC", "TRC20"): "trc20/usdc",
+    ("USDC", "ERC20"): "erc20/usdc",
+    ("USDC", "ETH20"): "erc20/usdc",
+    ("USDC", "BEP20"): "bep20/usdc",
+    ("USDC", "POLYGON"): "polygon/usdc",
+    ("USDC", "TON"): "ton/usdc",
+    ("DAI", "ERC20"): "erc20/dai",
+    ("DAI", "ETH20"): "erc20/dai",
+    ("DAI", "BEP20"): "bep20/dai",
+}
+
+_BLOCKBEE_NATIVE = {
+    "BTC": "btc",
+    "ETH": "eth",
+    "LTC": "ltc",
+    "BCH": "bch",
+    "TRX": "trx",
+    "BNB": "bnb",
+    "DOGE": "doge",
+    "SOL": "sol",
+    "XRP": "xrp",
+    "ADA": "ada",
+    "DOT": "dot",
+    "MATIC": "polygon",
+    "POL": "polygon",
+    "TON": "ton",
+}
+
+
+def _blockbee_api_key():
+    return _provider_setting(
+        PlatformSettings.S_BLOCKBEE_API_KEY, "BLOCKBEE_API_KEY", ""
+    ).strip()
+
+
+def _active_gateway():
+    """Gateway used for new deposits/payouts.
+
+    An explicit ``payment_gateway`` setting wins. Otherwise BlockBee is picked
+    as soon as its API key is configured, so adding the key is enough to switch
+    away from Plisio.
+    """
+    configured = (
+        PlatformSettings.get(PlatformSettings.S_PAYMENT_GATEWAY, "") or ""
+    ).strip().lower()
+    if configured in {"blockbee", "plisio"}:
+        return configured
+    return "blockbee" if _blockbee_api_key() else "plisio"
+
+
+def _blockbee_ticker(coin, network=""):
+    symbol = str(getattr(coin, "symbol", "") or "").strip().upper()
+    net = str(network or getattr(coin, "chain", "") or "").strip().upper()
+    net = net.replace("ETH20", "ERC20")
+    ticker = _BLOCKBEE_TOKENS.get((symbol, net))
+    if ticker:
+        return ticker
+    if symbol in {"USDT", "USDC"}:
+        raise ValueError(
+            f"BlockBee does not support {symbol} on {net or 'this network'}."
+        )
+    if symbol in _BLOCKBEE_NATIVE:
+        return _BLOCKBEE_NATIVE[symbol]
+    if symbol.isalnum():
+        return symbol.lower()
+    raise ValueError(f"BlockBee does not support {symbol}.")
+
+
+def _blockbee_request(method, path, params=None, body=None):
+    """Call the BlockBee API. Raises ValueError on any API/transport failure."""
+    key = _blockbee_api_key()
+    if not key:
+        raise ValueError(
+            "BlockBee is not configured. Set BLOCKBEE_API_KEY in Admin > Payments "
+            "or in the server environment."
+        )
+    query = dict(params or {})
+    query["apikey"] = key
+    url = f"{_BLOCKBEE_BASE}/{path.lstrip('/')}"
+    try:
+        if method.upper() == "GET":
+            r = requests.get(url, params=query, timeout=30)
+        else:
+            r = requests.post(
+                url,
+                params=query,
+                json=body or {},
+                headers={"apikey": key},
+                timeout=30,
+            )
+    except requests.RequestException as exc:
+        raise ValueError(f"BlockBee unreachable: {exc}") from exc
+    try:
+        data = r.json()
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    status = str(data.get("status") or "").lower()
+    if r.status_code >= 400 or status == "error":
+        message = (
+            data.get("error")
+            or data.get("message")
+            or data.get("detail")
+            or r.text[:300]
+        )
+        raise ValueError(f"BlockBee HTTP {r.status_code}: {message}")
+    return data
+
+
+def _blockbee_minimum(ticker):
+    """Minimum transfer for a ticker (coin units). Cached for 10 minutes."""
+    now = time.time()
+    cached = _BLOCKBEE_MINIMUM_CACHE.get(ticker)
+    if cached and now - cached[0] < 600:
+        return cached[1]
+    data = _blockbee_request("GET", f"{ticker}/info/")
+    try:
+        minimum = float(data.get("minimum_transaction_coin") or 0)
+    except (TypeError, ValueError):
+        minimum = 0.0
+    _BLOCKBEE_MINIMUM_CACHE[ticker] = (now, minimum)
+    return minimum
+
+
+def _blockbee_callback_url(order_ref):
+    base = _gateway_webhook_url()
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}order_id={order_ref}"
+
+
+def _create_blockbee_payment(investment, order_ref):
+    """Create a BlockBee payment address for an investment."""
+    coin = investment.coin
+    amount = float(investment.amount)
+    net_label = (investment.source_address or "").strip().upper() or coin.chain
+    common = {
+        "coin_symbol": coin.symbol,
+        "chain": net_label,
+        "amount": investment.amount,
+        "payment_mode": "provider",
+        "order_ref": order_ref,
+        "gateway": "blockbee",
+    }
+    if not _blockbee_api_key():
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": "BlockBee is not configured (API key).",
+            **common,
+        }
+    try:
+        ticker = _blockbee_ticker(coin, net_label)
+        minimum = _blockbee_minimum(ticker)
+    except ValueError as exc:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": str(exc),
+            **common,
+        }
+    if minimum > 0 and amount < minimum:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": (
+                f"Minimum for {coin.symbol} on {net_label} is "
+                f"{_amount_str(coin, minimum)} {coin.symbol}; "
+                f"this order is {_amount_str(coin, amount)} {coin.symbol}."
+            ),
+            **common,
+        }
+    callback = _blockbee_callback_url(order_ref)
+    try:
+        data = _blockbee_request(
+            "GET",
+            f"{ticker}/create/",
+            params={
+                "callback": callback,
+                "post": 1,
+                "pending": 1,
+                "convert": 1,
+            },
+        )
+    except ValueError as exc:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": str(exc),
+            **common,
+        }
+    address = str(data.get("address_in") or "").strip()
+    if not address:
+        return {
+            "status": "failed",
+            "address": "",
+            "checkout_url": "",
+            "message": "BlockBee created the payment but returned no address_in.",
+            **common,
+        }
+    try:
+        amount_usd = f"{_usd_amount(coin, amount):.2f}"
+    except ValueError:
+        amount_usd = ""
+    return {
+        "status": "pending",
+        "address": address,
+        "checkout_url": "",
+        "qr_code": "",
+        "pay_amount": _amount_str(coin, amount),
+        "pay_currency": coin.symbol,
+        "provider_order_id": address,
+        "provider_token": "blockbee",
+        "amount_usd": amount_usd,
+        "minimum": _amount_str(coin, minimum),
+        **common,
+    }
+
+
+def _blockbee_payment_status(order):
+    """Poll a BlockBee payment address. Returns (state, tx) in the shared
+    gateway vocabulary (FILLED / CANCELLED / PENDING)."""
+    ticker = _blockbee_ticker(order.coin, order.chain)
+    callback = _blockbee_callback_url(order.order_ref)
+    data = _blockbee_request(
+        "GET", f"{ticker}/logs/", params={"callback": callback}
+    )
+    address_in = str(data.get("address_in") or "").strip()
+    if address_in and order.provider_order_id and address_in != order.provider_order_id:
+        return "PENDING", ""
+    try:
+        expected = float(order.amount or 0)
+    except (TypeError, ValueError):
+        expected = 0.0
+    tolerance = max(1e-8, expected * 0.005)
+    callbacks = data.get("callbacks") or []
+    confirmed = False
+    tx = ""
+    for entry in callbacks:
+        if not isinstance(entry, dict):
+            continue
+        tx = tx or str(entry.get("txid_in") or "")
+        result = str(entry.get("result") or "").lower()
+        if result not in {"done", "sent"}:
+            continue
+        try:
+            received = float(entry.get("value_coin") or 0)
+        except (TypeError, ValueError):
+            received = 0.0
+        if expected > 0 and received + tolerance < expected:
+            continue
+        confirmed = True
+    if confirmed:
+        return "FILLED", tx
+    return "PENDING", tx
+
+
+def _create_blockbee_payout(coin, to_address, amount, network="", order_ref=None, user=None):
+    """Create and process a BlockBee payout. Returns ``bb:<payout_id>``."""
+    if not _blockbee_api_key():
+        raise ValueError("BlockBee payout is not configured (API key).")
+    ticker = _blockbee_ticker(coin, network)
+    amount = float(amount)
+    minimum = _blockbee_minimum(ticker)
+    if minimum > 0 and amount < minimum:
+        raise ValueError(
+            f"Minimum for {coin.symbol} on {network or coin.chain} is "
+            f"{_amount_str(coin, minimum)} {coin.symbol}; "
+            f"this payout is {_amount_str(coin, amount)} {coin.symbol}."
+        )
+    data = _blockbee_request(
+        "POST",
+        f"{ticker}/payout/request/bulk/process/",
+        body={"outputs": {str(to_address).strip(): amount}},
+    )
+    info = data.get("payout_info") if isinstance(data.get("payout_info"), dict) else {}
+    payout_id = str(info.get("id") or data.get("payout_id") or data.get("id") or "")
+    if not payout_id:
+        raise ValueError("BlockBee created the payout but returned no payout id.")
+    return f"bb:{payout_id}"
+
+
+def _blockbee_payout_status(payout_id):
+    """Poll a BlockBee payout. Returns (status, tx_hash) in the shared gateway
+    vocabulary (SENT / FAILED / PROCESSING)."""
+    pid = str(payout_id or "")
+    if pid.startswith("bb:"):
+        pid = pid[3:]
+    data = _blockbee_request("POST", "payout/status/", body={"payout_id": pid})
+    info = data.get("payout_info") if isinstance(data.get("payout_info"), dict) else {}
+    status = str(info.get("status") or data.get("status") or "").lower()
+    tx = str(info.get("txid") or info.get("tx_hash") or "")
+    if status in {"done", "completed", "sent", "success"}:
+        return "SENT", tx
+    if status in {"rejected", "expired", "error", "failed", "cancelled"}:
+        return "FAILED", tx
+    return "PROCESSING", tx
+
+
+def _blockbee_public_key():
+    override = os.environ.get("BLOCKBEE_PUBLIC_KEY", "").strip()
+    if override:
+        return override
+    now = time.time()
+    cached = _BLOCKBEE_PUBKEY_CACHE
+    if cached["pem"] and now - cached["fetched"] < 86400:
+        return cached["pem"]
+    try:
+        r = requests.get(f"{_BLOCKBEE_BASE}/pubkey/", timeout=10)
+        pem = str((r.json() or {}).get("pubkey") or "").strip()
+        if pem:
+            cached["pem"] = pem
+            cached["fetched"] = now
+            return pem
+    except (requests.RequestException, ValueError):
+        pass
+    return cached["pem"] or _BLOCKBEE_DOC_PUBKEY
+
+
+def verify_blockbee_signature(raw_body, signature, method="POST", url=""):
+    """Verify BlockBee's ``x-ca-signature`` header (RSA-SHA256, base64).
+
+    POST callbacks sign the raw body; GET callbacks sign the full URL.
+    """
+    signature = str(signature or "").strip()
+    if not signature:
+        return False
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+    except ImportError:
+        return False
+    try:
+        sig = base64.b64decode(signature)
+    except (ValueError, TypeError):
+        return False
+    try:
+        key = serialization.load_pem_public_key(_blockbee_public_key().encode())
+    except (ValueError, TypeError):
+        return False
+    data = url.encode() if str(method).upper() == "GET" else (raw_body or b"")
+    if not data:
+        return False
+    try:
+        key.verify(sig, data, padding.PKCS1v15(), hashes.SHA256())
+    except (InvalidSignature, ValueError, TypeError):
+        return False
+    return True
+
+
+def handle_blockbee_webhook(data, order_ref=""):
+    """Apply a verified BlockBee payment callback.
+
+    ``order_id`` is carried as a GET parameter on the callback URL (BlockBee
+    keeps custom GET parameters even for POST callbacks); ``address_in`` is the
+    fallback identifier. Pending callbacks (``pending=1``) leave the order as is.
+    """
+    from api.models import PaymentOrder
+
+    if not isinstance(data, dict):
+        return False
+    order = None
+    ref = str(order_ref or data.get("order_id") or "").strip()
+    if ref:
+        order = PaymentOrder.objects.filter(order_ref=ref).first()
+    address_in = str(data.get("address_in") or "").strip()
+    if order is None and address_in:
+        order = PaymentOrder.objects.filter(provider_order_id=address_in).first()
+    if order is None:
+        return False
+    # Only BlockBee orders may be credited by a BlockBee callback, and the
+    # signed address_in must be the one we generated for that order. This stops
+    # a replayed body from being redirected to another order via ?order_id=.
+    if str(order.provider_token or "").strip() != "blockbee":
+        return False
+    if not order.provider_order_id or not address_in:
+        return False
+    if address_in != order.provider_order_id:
+        return False
+
+    pending = str(data.get("pending", "")).strip().lower()
+    if pending not in {"0", "false", "no"}:
+        return False
+
+    txid = str(data.get("txid_in") or "")
+    try:
+        received = float(data.get("value_coin") or 0)
+    except (TypeError, ValueError):
+        received = 0.0
+    try:
+        expected = float(order.amount)
+    except (TypeError, ValueError):
+        expected = 0.0
+    # Never credit an investment for less than the ordered amount. A shortfall
+    # is left pending so an admin can review it (BlockBee keeps its logs).
+    tolerance = max(1e-8, expected * 0.005)
+    if received <= 0 or (expected > 0 and received + tolerance < expected):
+        return False
+
+    if order.status == PaymentOrder.STATUS_PAID:
+        return False
+    order.mark_paid(txid)
+    order.investment.confirm()
+    return True
+
+
+def test_provider_connection():
+    """Test the active crypto gateway. Returns (ok, message)."""
+    mode = _mode()
+    if mode != "provider":
+        return False, f"Payment mode is '{mode}'. Switch to 'provider' to test."
+    if _active_gateway() == "blockbee":
+        if not _blockbee_api_key():
+            return False, "No BlockBee API key configured (Admin > Payments)."
+        try:
+            _blockbee_request("GET", "btc/info/")
+        except ValueError as exc:
+            return False, f"BlockBee API key rejected: {exc}"
+        # /info/ is not IP-restricted, but address creation and payouts are.
+        try:
+            _blockbee_request("GET", "trc20/usdt/payout/balance/")
+        except ValueError as exc:
+            message = str(exc)
+            lowered = message.lower()
+            if "ip" in lowered or "whitelist" in lowered:
+                return False, (
+                    "BlockBee key is IP-restricted — allow this server's IP in "
+                    f"the BlockBee dashboard. {message}"
+                )
+            if "v1 api key" in lowered:
+                return False, (
+                    "BlockBee payout key is V1; upgrade to API Key V2 for "
+                    f"payouts. {message}"
+                )
+            # No payout wallet yet does not stop deposits.
+            return True, f"BlockBee deposits OK; payout check: {message}"
+        return True, "BlockBee OK (deposits + payouts)."
+    return test_plisio_connection()
+
+
+def _payment_gateway(order=None):
+    """Which provider owns a payment order.
+
+    New BlockBee orders are tagged in ``provider_token``; older Plisio orders
+    keep their hosted-invoice URL. Anything else follows the active gateway.
+    """
+    if order is not None:
+        if str(getattr(order, "provider_token", "") or "").strip() == "blockbee":
+            return "blockbee"
+        if "plisio" in str(getattr(order, "checkout_url", "") or "").lower():
+            return "plisio"
+    return _active_gateway()
 
 
 def _payout_gateway(net):
-    """Which provider owns a payout/withdrawal. Plisio is the only one."""
-    return "plisio"
+    """Which provider owns a payout/withdrawal (the active gateway)."""
+    return _active_gateway()
 
 
 # ---------------------------------------------------------------------------
@@ -788,6 +1279,10 @@ def send_platform_to_user(coin, to_address, amount, network="", order_ref=None, 
         return ""
     if mode == "provider":
         net = (network or coin.chain or "").upper()
+        if _active_gateway() == "blockbee":
+            return _create_blockbee_payout(
+                coin, to_address, amount, net, order_ref, user
+            )
         return _create_plisio_payout(coin, to_address, amount, net, order_ref, user)
     # simulate
     return _simulated_hash("send")
@@ -836,6 +1331,8 @@ def create_payment_order(investment):
         return {"order_ref": ref, "status": "manual", "address": "", "checkout_url": "", **common}
 
     if mode == "provider":
+        if _active_gateway() == "blockbee":
+            return _create_blockbee_payment(investment, ref)
         return _create_plisio_payment(investment, ref)
 
     # simulate: show the platform's deposit address and confirm on "I paid".
@@ -888,9 +1385,12 @@ def confirm_payment(order_ref):
 
     if mode == "provider":
         try:
-            state, txid = _plisio_payment_status(
-                order.provider_order_id or order.order_ref
-            )
+            if _payment_gateway(order) == "blockbee":
+                state, txid = _blockbee_payment_status(order)
+            else:
+                state, txid = _plisio_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
         except ValueError as exc:
             return False, "", f"Gateway check failed: {exc}"
         result = _apply_payment_status(order, state, txid)
@@ -937,9 +1437,12 @@ def payment_order_status(order_ref):
 
     if _mode() == "provider" and order.provider_order_id:
         try:
-            state, txid = _plisio_payment_status(
-                order.provider_order_id or order.order_ref
-            )
+            if _payment_gateway(order) == "blockbee":
+                state, txid = _blockbee_payment_status(order)
+            else:
+                state, txid = _plisio_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
         except ValueError:
             state, txid = None, ""
         if state:
@@ -1120,10 +1623,10 @@ def test_plisio_connection():
 
 
 def reconcile_gateway():
-    """Finalize outstanding gateway orders by polling Plisio.
+    """Finalize outstanding gateway orders by polling the active provider.
 
-    - Confirms pending investments whose Plisio payment reached a filled state.
-    - Finalizes PROCESSING withdrawals/payouts whose Plisio payout reached a
+    - Confirms pending investments whose gateway payment reached a filled state.
+    - Finalizes PROCESSING withdrawals/payouts whose gateway payout reached a
       terminal state (completed or failed/refunded).
     Returns (investments_confirmed, transfers_finalized) counts.
     """
@@ -1131,7 +1634,10 @@ def reconcile_gateway():
 
     if _mode() != "provider":
         return 0, 0
-    if not _plisio_api_key():
+    if _active_gateway() == "blockbee":
+        if not _blockbee_api_key():
+            return 0, 0
+    elif not _plisio_api_key():
         return 0, 0
 
     paid_orders = 0
@@ -1140,20 +1646,28 @@ def reconcile_gateway():
     )
     for order in orders:
         try:
-            state, txid = _plisio_payment_status(
-                order.provider_order_id or order.order_ref
-            )
+            if _payment_gateway(order) == "blockbee":
+                state, txid = _blockbee_payment_status(order)
+            else:
+                state, txid = _plisio_payment_status(
+                    order.provider_order_id or order.order_ref
+                )
         except ValueError:
             continue
         if _apply_payment_status(order, state, txid) == "paid":
             paid_orders += 1
+
+    def _payout_status(provider_id):
+        if str(provider_id).startswith("bb:"):
+            return _blockbee_payout_status(provider_id)
+        return _plisio_payout_status(provider_id)
 
     transfers = 0
     for wd in Withdrawal.objects.filter(
         status=Withdrawal.STATUS_PROCESSING
     ).exclude(provider_id="").select_related("coin", "user"):
         try:
-            status, txid = _plisio_payout_status(wd.provider_id)
+            status, txid = _payout_status(wd.provider_id)
         except ValueError:
             continue
         if status in _GATEWAY_PAYOUT_DONE:
@@ -1179,7 +1693,7 @@ def reconcile_gateway():
         status=Payout.STATUS_PROCESSING
     ).exclude(provider_id="").select_related("coin"):
         try:
-            status, txid = _plisio_payout_status(po.provider_id)
+            status, txid = _payout_status(po.provider_id)
         except ValueError:
             continue
         if status in _GATEWAY_PAYOUT_DONE:

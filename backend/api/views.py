@@ -8,7 +8,7 @@ import requests
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models.deletion import ProtectedError
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from rest_framework import generics, permissions, response, serializers, status, views
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -68,9 +68,11 @@ from api.services import (
     handle_cryptomus_webhook,
     verify_plisio_signature,
     handle_plisio_webhook,
+    verify_blockbee_signature,
+    handle_blockbee_webhook,
     verify_webhook_signature,
     send_platform_to_user,
-    test_plisio_connection,
+    test_provider_connection,
     reconcile_gateway,
     payment_order_status,
     _withdrawal_order_ref,
@@ -1044,16 +1046,22 @@ class GatewayWebhookView(views.APIView):
           * Plisio JSON callbacks carry ``verify_hash`` in the body: HMAC-SHA1
             over JSON.stringify(payload minus verify_hash), signed with the
             Plisio SECRET_KEY (see ``verify_plisio_signature``).
+          * BlockBee callbacks carry ``x-ca-signature``: RSA-SHA256 (base64)
+            over the raw POST body / full GET URL.
         """
         raw = request.body
         sig_gateway = request.META.get("HTTP_X_GATEWAY_SIGNATURE", "")
         sig_btcpay = request.META.get("HTTP_BTCPAY_SIG", "")
         sig_nowpayments = request.META.get("HTTP_X_NOWPAYMENTS_SIG", "")
+        sig_blockbee = request.META.get("HTTP_X_CA_SIGNATURE", "")
         data = _parse_webhook_body(raw)
         header_ok = (
             bool(sig_gateway and verify_webhook_signature(raw, sig_gateway))
             or bool(sig_btcpay and verify_btcpay_signature(raw, sig_btcpay))
             or bool(sig_nowpayments and verify_nowpayments_signature(raw, sig_nowpayments))
+        )
+        blockbee_ok = bool(
+            sig_blockbee and verify_blockbee_signature(raw, sig_blockbee)
         )
         # Cryptomus signs the JSON body itself ("sign" field), not a header.
         is_cryptomus = isinstance(data, dict) and "sign" in data and not header_ok
@@ -1064,7 +1072,7 @@ class GatewayWebhookView(views.APIView):
             and not cryptomus_ok
         )
         plisio_ok = is_plisio and verify_plisio_signature(data)
-        if not (header_ok or cryptomus_ok or plisio_ok):
+        if not (header_ok or blockbee_ok or cryptomus_ok or plisio_ok):
             return response.Response(
                 {"detail": tr("Bad signature.", request)}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -1072,6 +1080,11 @@ class GatewayWebhookView(views.APIView):
             return response.Response(
                 {"detail": tr("Invalid payload.", request)}, status=status.HTTP_400_BAD_REQUEST
             )
+        if blockbee_ok:
+            order_ref = (request.query_params.get("order_id") or "").strip()
+            handle_blockbee_webhook(data, order_ref)
+            # BlockBee retries unless the body is exactly "*ok*".
+            return HttpResponse("*ok*", content_type="text/plain")
         if cryptomus_ok:
             handled = handle_cryptomus_webhook(data)
         elif plisio_ok:
@@ -1409,6 +1422,13 @@ class AdminPaymentSettingsView(views.APIView):
             PlatformSettings.S_PAYMENT_WEBHOOK_TOKEN, "dev-gateway-secret"
         )
         plisio_api_key = PlatformSettings.get(PlatformSettings.S_PLISIO_API_KEY, "")
+        blockbee_api_key = (
+            os.environ.get("BLOCKBEE_API_KEY", "").strip()
+            or PlatformSettings.get(PlatformSettings.S_BLOCKBEE_API_KEY, "")
+        ).strip()
+        gateway = PlatformSettings.get(PlatformSettings.S_PAYMENT_GATEWAY, "") or (
+            "blockbee" if blockbee_api_key else "plisio"
+        )
 
         def mask(v):
             v = str(v).strip()
@@ -1420,6 +1440,7 @@ class AdminPaymentSettingsView(views.APIView):
 
         return response.Response({
             "payment_mode": mode,
+            "gateway": gateway,
             "provider": {
                 "url": url,
                 "key_masked": mask(key) if key else "",
@@ -1441,6 +1462,10 @@ class AdminPaymentSettingsView(views.APIView):
             "plisio": {
                 "api_key_masked": mask(plisio_api_key) if plisio_api_key else "",
                 "api_key_set": bool(plisio_api_key),
+            },
+            "blockbee": {
+                "api_key_masked": mask(blockbee_api_key) if blockbee_api_key else "",
+                "api_key_set": bool(blockbee_api_key),
             },
             "platform_wallets": [
                 {
@@ -1464,6 +1489,14 @@ class AdminPaymentSettingsView(views.APIView):
             )
         elif mode:
             return response.Response({"detail": tr("Invalid payment mode.", request)}, 400)
+        gateway = (request.data.get("gateway") or "").strip().lower()
+        if gateway in {"blockbee", "plisio"}:
+            PlatformSettings.objects.update_or_create(
+                key=PlatformSettings.S_PAYMENT_GATEWAY,
+                defaults={"value": gateway, "label": "blockbee | plisio"},
+            )
+        elif gateway:
+            return response.Response({"detail": tr("Invalid payment gateway.", request)}, 400)
         for field_name, key, label in (
             ("provider_url", PlatformSettings.S_PAYMENT_PROVIDER_URL, "(legacy) provider API base URL"),
             ("provider_key", PlatformSettings.S_PAYMENT_PROVIDER_KEY, "(legacy) provider API key"),
@@ -1473,6 +1506,7 @@ class AdminPaymentSettingsView(views.APIView):
             ("callback_url", PlatformSettings.S_PAYMENT_CALLBACK_URL, "(legacy) Webhook callback URL"),
             ("success_url", PlatformSettings.S_PAYMENT_SUCCESS_URL, "Success redirect URL"),
             ("plisio_api_key", PlatformSettings.S_PLISIO_API_KEY, "Plisio SECRET_KEY (API » API settings)"),
+            ("blockbee_api_key", PlatformSettings.S_BLOCKBEE_API_KEY, "BlockBee API key"),
         ):
             val = (request.data.get(field_name) or "").strip()
             if field_name in request.data and val:
@@ -1512,7 +1546,7 @@ class AdminProviderTestView(views.APIView):
     permission_classes = [IsStaffPermission]
 
     def post(self, request):
-        ok, message = test_plisio_connection()
+        ok, message = test_provider_connection()
         return response.Response({"ok": ok, "message": message})
 
 
