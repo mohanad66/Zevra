@@ -30,3 +30,7 @@ frontend/android/*.keystore
 .DS_Store
 Thumbs.db
 certs/
+sqlite_*.json
+zevra_db.sql
+backend/db.sqlite3
+
