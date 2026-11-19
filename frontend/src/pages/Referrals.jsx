@@ -16,7 +16,7 @@ export default function Referrals() {
   const { t } = useI18n()
 
   const inviteLink = data?.invite_code
-    ? `${import.meta.env.VITE_APP_URL || window.location.origin}/register?invite=${data.invite_code}`
+    ? `https://myxtrading.org/register?invite=${data.invite_code}`
     : ''
   useEffect(() => {
     client.get('/referrals/').then((res) => setData(res.data)).catch((err) => toast(apiError(err), 'error'))

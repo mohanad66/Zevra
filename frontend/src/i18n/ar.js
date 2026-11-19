@@ -23,6 +23,7 @@ export const ar = {
   "nav.community": "الدخول الى مجتمع أعضاء MYX",
   'nav.growth': 'النمو',
   'nav.more': 'المزيد',
+  'nav.downloadApp':"حمّل التطبيق",
 
   // growth page
   'growth.title': 'نمو العملات',

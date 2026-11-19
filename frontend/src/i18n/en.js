@@ -1,4 +1,4 @@
-export const en = {
+﻿export const en = {
   // nav
   'nav.dashboard': 'Dashboard',
   'nav.market': 'Market',
@@ -23,6 +23,7 @@ export const en = {
   "nav.community": "Join MYX Community",
   'nav.growth': 'Growth',
   'nav.more': 'More',
+  'nav.downloadApp':"Download the app",
 
   // growth page
   'growth.title': 'Coins growth',

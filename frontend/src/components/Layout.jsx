@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom'
-import { LineChart, TrendingUp, ArrowDownToLine, Users, LogOut, Home, Shield, Bell, Globe, LifeBuoy, Sun, Moon, Coins, Menu, X } from 'lucide-react'
+import { LineChart, TrendingUp, ArrowDownToLine, Users, LogOut, Home, Shield, Bell, Globe, LifeBuoy, Sun, Moon, Coins, Menu, X, Smartphone } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
 import { useTheme } from '../theme'
 import { client } from '../api/client'
 import GuidePopup from './GuidePopup'
-
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.myxtrading.trading'
 function useNavLabels(t) {
   return [
     { to: '/dashboard', label: t('nav.dashboard'), icon: Home },
@@ -237,18 +237,28 @@ export default function Layout() {
                 <span>{l.label}</span>
               </NavLink>
             ))}
+            <a
+  className="more-link"
+  href={PLAY_STORE_URL}
+  target="_blank"
+  rel="noopener noreferrer"
+  onClick={() => setMoreOpen(false)}
+>
+  <Smartphone size={18} />
+  <span>{t('nav.downloadApp')}</span>
+</a>
           </div>
         </div>
       )}
 
       <footer className="footer">
         <div className="footer-social">
-          <a className="footer-cta" href="https://t.me/MYX_APP2" target="_blank" rel="noopener noreferrer">
-            <LifeBuoy size={16} /> {t('nav.support')}
-          </a>
-          <a className="footer-cta" href="https://t.me/MYX_APP1" target="_blank" rel="noopener noreferrer">
-            <Users size={16} /> {t('nav.community')}
-          </a>
+  <a className="footer-cta footer-cta-app" href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">
+    <Smartphone size={16} /> {t('nav.downloadApp')}
+  </a>
+  <a className="footer-cta" href="https://t.me/MYX_APP2" target="_blank" rel="noopener noreferrer">
+    <LifeBuoy size={16} /> {t('nav.support')}
+  </a>
         </div>
         <div className="footer-links">
           <NavLink to="/terms">{t('nav.terms')}</NavLink>
