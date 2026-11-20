@@ -6,7 +6,7 @@ import { useI18n } from '../i18n'
 import { useTheme } from '../theme'
 import { client } from '../api/client'
 import GuidePopup from './GuidePopup'
-const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.myxtrading.trading'
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.myxtrading.ap'
 function useNavLabels(t) {
   return [
     { to: '/dashboard', label: t('nav.dashboard'), icon: Home },
